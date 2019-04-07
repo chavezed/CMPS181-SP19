@@ -6,8 +6,12 @@ typedef int RC;
 typedef char byte;
 
 #define PAGE_SIZE 4096
+#define SUCCESS 0
+
 #include <string>
 #include <climits>
+#include <sys/stat.h>
+
 using namespace std;
 
 class FileHandle;
@@ -47,6 +51,14 @@ public:
     RC appendPage(const void *data);                                    // Append a specific page
     unsigned getNumberOfPages();                                        // Get the number of pages in the file
     RC collectCounterValues(unsigned &readPageCount, unsigned &writePageCount, unsigned &appendPageCount);  // Put the current counter values into variables
+
+    friend class PagedFileManager;
+
+private:
+    FILE* _fd;
+
+    void setFile(FILE *fd);
+    FILE* getFile();
 }; 
 
 #endif
