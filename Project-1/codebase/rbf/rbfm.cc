@@ -41,14 +41,16 @@ RC RecordBasedFileManager::closeFile(FileHandle &fileHandle) {
     return _pf_manager->closeFile(fileHandle);
 }
 
-int size_helper(const vector<Attribute> &recordDescriptor, void *data){
+int size_helper(const vector<Attribute> &recordDescriptor, const void *data, void* formated){
     unsigned numberOfNullBytes = ceil(recordDescriptor.size() / 8.0);
+    int numnberOfAttributes = (int)recordDescriptor.size();
     char nullIndicator[numberOfNullBytes];
     memset(nullIndicator, 0, numberOfNullBytes);
     memcpy(nullIndicator, (char*)data, numberOfNullBytes);
+    int attribute_size[numnberOfAttributes];
 
     int offset = numberOfNullBytes;
-    for(int field = 0; field < (int)recordDescriptor.size(); field++){
+    for(int field = 0; field < numnberOfAttributes; field++){
         int totalbytes = 0;
 
         int byteNumber = ceil( (field+1) / 8.0) - 1;
@@ -56,6 +58,7 @@ int size_helper(const vector<Attribute> &recordDescriptor, void *data){
 
         if (nullIndicator[byteNumber] & mask){ //gets single bit.
             //means that entry is null
+            attribute_size[field] = totalbytes;
             continue;
         }
         if (recordDescriptor[field].type == TypeInt){
@@ -80,20 +83,40 @@ int size_helper(const vector<Attribute> &recordDescriptor, void *data){
         else {
             return -1;
         }
+        attribute_size[field] = totalbytes;
         offset += totalbytes;
     }
-    return offset;
+    int size_of_record = offset + (numnberOfAttributes * sizeof(int));
+    memset(formated, 0, size_of_record);
+    memcpy((char*)formated, &numnberOfAttributes, sizeof(int)); // number of attributes
+    memcpy((char*)formated + sizeof(int), nullIndicator, numberOfNullBytes);//null array
+
+    int current_offset = sizeof(int) + numberOfNullBytes;
+    int record_offset = numnberOfAttributes * sizeof(int);//assume start after null bytes
+
+    for(int i = 0; i < numnberOfAttributes; i++){
+        record_offset += attribute_size[i];
+        memcpy((char*)formated + current_offset, &record_offset, sizeof(int));
+        memcpy((char*)formated + current_offset + record_offset, &attribute_size[i], sizeof(int));
+        current_offset += sizeof(int);
+    }
+
+    return size_of_record;
 }
 
 RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const void *data, RID &rid) {
-    void* page;
-    int size_of_record=size_helper(recordDescriptor, data);
+    void* page = malloc(PAGE_SIZE);
+    void* formated = malloc(100);
+    memset((char*) page, 0, PAGE_SIZE);
+    memset((char*) formated, 0, 100);
+
+    int size_of_record = size_helper(recordDescriptor, data, formated);
     int page_num=0;
     int flag=0;
     int offset = PAGE_SIZE - (2 * sizeof(int));
     int num_slots=0;
     int free_space_offset=0;
-    while(_pf_manager->readPage(page_num, page) == 0){
+    while(fileHandle.readPage(page_num, page) == 0){
 
         memcpy(&num_slots,(char*) page+offset, sizeof(int));
         memcpy(&free_space_offset,(char*) page+(offset+sizeof(int)), sizeof(int));
@@ -108,21 +131,24 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Att
         num_slots=0;
         free_space_offset=0;
         memset((char*) page, 0, PAGE_SIZE);
-        appendPage(page);
+        fileHandle.appendPage(page);
     }
     int slot_location = (PAGE_SIZE - (sizeof(int) * 2 *(num_slots+2)));
-    memcpy((char*) page + free_space_offset,data ,size_of_record);
+    memcpy((char*) page + free_space_offset, formated,size_of_record);
     //input new slot
-    memcpy((char*) page + slot_location,free_space_offset ,sizeof(int));
-    memcpy((char*) page + slot_location+sizeof(int),size_of_record ,sizeof(int));
+    memcpy((char*) page + slot_location, &free_space_offset, sizeof(int));
+    memcpy((char*) page + slot_location+sizeof(int), &size_of_record, sizeof(int));
     //change num-slots and free space offset
     num_slots += 1;
-    memcpy((char*) page + offset, num_slots, sizeof(int));
+    memcpy((char*) page + offset, &num_slots, sizeof(int));
     free_space_offset += size_of_record;
-    memcpy((char*) page + offset, free_space_offset, sizeof(int));
-    
-    return _pf_manager -> writePage(page_num, page);
-}
+    memcpy((char*) page + offset, &free_space_offset, sizeof(int));
+    rid.pageNum = page_num;
+    rid.slotNum = num_slots;
+    int success = fileHandle.writePage(page_num, page);
+    free(page);
+    free(formated);
+    return success;
 
 RC RecordBasedFileManager::readRecord(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const RID &rid, void *data) {
     return -1;
