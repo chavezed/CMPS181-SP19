@@ -149,8 +149,65 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Att
     free(page);
     free(formated);
     return success;
-
+}
 RC RecordBasedFileManager::readRecord(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const RID &rid, void *data) {
+    void* page = malloc(PAGE_SIZE);
+    void* record;
+    FileHandle.readPage(RID.pageNum, page);
+    int offset=0;
+    int length=0;
+    record = malloc(length);
+    int slot = PAGE_SIZE -((RID.slotNum - 1) * 2 * sizeof(int));
+    memcpy(offset, (char*)page + slot, sizeof(int))
+    memcpy(length, (char*)page + slot + sizeof(int), sizeof(int))
+    memcpy(record, (char*)page +offset, length);
+
+    unsigned numberOfNullBytes = ceil(recordDescriptor.size() / 8.0);
+    char nullIndicator[numberOfNullBytes];
+    memset(nullIndicator, 0, numberOfNullBytes);
+    memcpy(nullIndicator, (char*)record+sizeof(int), numberOfNullBytes);
+    //previous value of offset no longer necessary
+    offset = numberOfNullBytes;
+    int next_value= sizeof(int) * (1 + (int)recodDescriptor.size())+ offset;
+
+    for(int field = 0; field < (int)recordDescriptor.size(); field++){
+        int totalbytes = 0;
+        int byteNumber = ceil( (field+1) / 8.0) - 1;
+        char mask = 0x01 << (field % 8); // use modulo because only using mask on a byte (8 bits)
+
+        if (nullIndicator[byteNumber] & mask){ //gets single bit.
+            //means that entry is null
+            continue;
+        }
+        if (recordDescriptor[field].type == TypeInt){
+            next_value += recordDescriptor[field].length;
+            int intAttribute;
+            memset(&intAttribute, 0, sizeof(int));
+            memcpy(&intAttribute, (char*)data+offset, sizeof(int));
+            cout << intAttribute;
+        }
+        else if(recordDescriptor[field].type == TypeReal){
+            next_value += recordDescriptor[field].length;
+            float realAttribute;
+            memset(&realAttribute, 0, sizeof(float));
+            memcpy(&realAttribute, (char*)data+offset, sizeof(float));
+            cout << realAttribute;
+        }
+        else if(recordDescriptor[field].type == TypeVarChar){
+            int temp=0;
+            memcpy(&temp, (char *)data+offset, sizeof(int));
+            offset += 4; //size of the int we just read
+            char varCharData[totalbytes];
+            memset(varCharData, 0, totalbytes);
+            memcpy(varCharData, (char *)data+offset, totalbytes);
+            for(int i = 0; i < totalbytes; i++){
+                cout << varCharData[i];
+            }
+        }
+        else {
+            return -1;
+        }
+
     return -1;
 }
 
