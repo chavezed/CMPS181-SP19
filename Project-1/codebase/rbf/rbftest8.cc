@@ -53,6 +53,7 @@ int RBFTest_8(RecordBasedFileManager *rbfm) {
 
     // Insert a record into a file and print the record
     prepareRecord(recordDescriptor.size(), nullsIndicator, 8, "UCSCSlug", 24, 170.1, 5000, record, &recordSize);
+    cout << "The recordSize is : " << recordSize << endl;// Modified for testing
     cout << endl << "Inserting Data:" << endl;
     rbfm->printRecord(recordDescriptor, record);
     

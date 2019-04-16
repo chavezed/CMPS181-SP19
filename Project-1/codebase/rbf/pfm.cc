@@ -86,9 +86,9 @@ RC PagedFileManager::closeFile(FileHandle &fileHandle)
 
 FileHandle::FileHandle()
 {
-	readPageCounter = 0;
-	writePageCounter = 0;
-	appendPageCounter = 0;
+    readPageCounter = 0;
+    writePageCounter = 0;
+    appendPageCounter = 0;
     _fd = NULL;
 }
 
@@ -106,7 +106,6 @@ FileHandle::~FileHandle()
                         SEEK_SET: Beginning of file
                         SEEK_CUR: Current position of the file pointer
                         SEEK_END: End of file
-
     size_t fread (void *ptr, size_t size, size_t nmemb, FILE *stream);
         ptr     - pointer to a block of memory with a minimum size of
                   size * nmemb bytes
@@ -117,7 +116,6 @@ FileHandle::~FileHandle()
         Total number of elements successfully read are returned as a size_t
         object, which is an integral type. If this number differes from the
         nmemb paramter, then either an error had occurred or the EOF was reached.
-
 */
 RC FileHandle::readPage(PageNum pageNum, void *data)
 {
@@ -168,7 +166,6 @@ RC FileHandle::appendPage(const void *data)
 
 /*
 Source: https://linux.die.net/man/2/fstat
-
     Declaration:
         int fstat (int fd, struct stat *statbuf);
     Description:
@@ -176,13 +173,10 @@ Source: https://linux.die.net/man/2/fstat
         retrieved is specified by the file descriptor fd.
     Return Value:
         On success, zero is returned. On error, -1 is returned, and errno is set appropriately.
-
     off_t   st_size;
         Field that gives the size of the file (if it is a regular file or a symbolic link) in bytes.
-
     int fileno (FILE *stream)
         examines the argument stream and returns its integer description
-
 */
 unsigned FileHandle::getNumberOfPages()
 {
@@ -196,7 +190,7 @@ unsigned FileHandle::getNumberOfPages()
 
 RC FileHandle::collectCounterValues(unsigned &readPageCount, unsigned &writePageCount, unsigned &appendPageCount)
 {
-	readPageCount = readPageCounter;
+    readPageCount = readPageCounter;
     writePageCount = writePageCounter;
     appendPageCount = appendPageCounter;
     return SUCCESS;

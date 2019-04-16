@@ -2,8 +2,12 @@
 #define _rbfm_h_
 
 #include <string>
+#include <cstring>
 #include <vector>
+#include <cmath>
 #include <climits>
+#include <iostream>
+#include <ostream>
 
 #include "../rbf/pfm.h"
 
@@ -132,6 +136,7 @@ protected:
 
 private:
   static RecordBasedFileManager *_rbf_manager;
+  static PagedFileManager *_pf_manager;
 };
 
 #endif
