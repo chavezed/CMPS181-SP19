@@ -48,8 +48,9 @@ int size_helper(const vector<Attribute> &recordDescriptor, const void *data, voi
     memset(nullIndicator, 0, numberOfNullBytes);
     memcpy(nullIndicator, (char*)data, numberOfNullBytes);
     int attribute_size[numnberOfAttributes];
-
     int offset = numberOfNullBytes;
+    void* temp_data = malloc(100);
+    int temp_data_offset = 0;
     for(int field = 0; field < numnberOfAttributes; field++){
         int totalbytes = 0;
 
@@ -66,12 +67,16 @@ int size_helper(const vector<Attribute> &recordDescriptor, const void *data, voi
             int intAttribute;
             memset(&intAttribute, 0, sizeof(int));
             memcpy(&intAttribute, (char*)data+offset, sizeof(int));
+            memcpy((char*) temp_data+temp_data_offset, &intAttribute, sizeof(int));
+            temp_data_offset += totalbytes;
         }
         else if(recordDescriptor[field].type == TypeReal){
             totalbytes = recordDescriptor[field].length;
             float realAttribute;
             memset(&realAttribute, 0, sizeof(float));
             memcpy(&realAttribute, (char*)data+offset, sizeof(float));
+            memcpy((char*) temp_data+temp_data_offset, &realAttribute, sizeof(float));
+            temp_data_offset += totalbytes;
         }
         else if(recordDescriptor[field].type == TypeVarChar){
             memcpy(&totalbytes, (char *)data+offset, sizeof(int));
@@ -79,6 +84,8 @@ int size_helper(const vector<Attribute> &recordDescriptor, const void *data, voi
             char varCharData[totalbytes];
             memset(varCharData, 0, totalbytes);
             memcpy(varCharData, (char *)data+offset, totalbytes);
+            memcpy((char*) temp_data+temp_data_offset, &varCharData, totalbytes);
+            temp_data_offset += totalbytes;
         }
         else {
             return -1;
@@ -97,10 +104,10 @@ int size_helper(const vector<Attribute> &recordDescriptor, const void *data, voi
     for(int i = 0; i < numnberOfAttributes; i++){
         record_offset += attribute_size[i];
         memcpy((char*)formated + current_offset, &record_offset, sizeof(int));
-        memcpy((char*)formated + current_offset + record_offset, &attribute_size[i], sizeof(int));
         current_offset += sizeof(int);
     }
-
+    memcpy((char*) formated + current_offset, temp_data,temp_data_offset);//change x,y
+    free(temp_data);
     return size_of_record;
 }
 
@@ -180,14 +187,15 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle, const vector<Attri
     data_offset = numberOfNullBytes;//offset to end of void* data
     int nextval_offset= 0;//offset to location of end of first value
     int start_nextval_offset= sizeof(int) + numberOfNullBytes;//copy of nextval offset, never changes
-    
+    cout<< "rd_size :" << (int)recordDescriptor.size() <<"\n";
     //for field in record
     for(int field = 0; field < (int)recordDescriptor.size(); field++){
         int next_val_location = 0;//location of nextval
         int field_len = 0;
         cout << "nextval\n";
         memcpy(&next_val_location, (char*) record + start_nextval_offset + nextval_offset, sizeof(int));
-        field_len = next_val_location - offset;
+        field_len = abs(start_nextval_offset + next_val_location - offset);
+        cout << "field_len :" << field_len << "\n";
         int totalbytes = 0;
         int byteNumber = ceil( (field+1) / 8.0) - 1;
         char mask = 0x01 << (field % 8); // use modulo because only using mask on a byte (8 bits)
@@ -218,7 +226,7 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle, const vector<Attri
             cout << "type varchar\n";
             totalbytes = field_len;
             char varCharData[totalbytes];
-            cout<<
+            //cout<< "field_len :"<< field_len <<"\n";
             memset(varCharData, 0, totalbytes);
             memcpy(varCharData, (char *)record + offset, totalbytes);
             cout << "reach for in varchar\n";
@@ -232,11 +240,11 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle, const vector<Attri
         else {
             return -1;
         }
-        cout << "out of loop, no null";
+        cout << "out of loop, no null\n";
         offset += totalbytes;
         data_offset += totalbytes;
     }
-    return -1;
+    return 0;
 }
 
 RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor, const void *data) {
