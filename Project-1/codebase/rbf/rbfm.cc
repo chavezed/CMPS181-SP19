@@ -151,36 +151,41 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Att
     return success;
 }
 RC RecordBasedFileManager::readRecord(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const RID &rid, void *data) {
+    cout << "readRecord\n";
     void* page = malloc(PAGE_SIZE);
     void* record;
-    FileHandle.readPage(RID.pageNum, page);
+    fileHandle.readPage(rid.pageNum, page);
     int offset=0;
     int length=0;
     int data_offset=0;
     // record = malloc(100); //not necessary atm
-    int slot = PAGE_SIZE -((RID.slotNum - 1) * 2 * sizeof(int));//slot location
+    int slot = PAGE_SIZE -((rid.slotNum - 1) * 2 * sizeof(int));//slot location
     //copy get record from slot
-    memcpy(offset, (char*)page + slot, sizeof(int));
-    memcpy(length, (char*)page + slot + sizeof(int), sizeof(int));
+    //cout<<"line 164\n";
+    memcpy(&offset, (char*)page + slot, sizeof(int));
+    memcpy(&length, (char*)page + slot + sizeof(int), sizeof(int));
+    //cout<<"malloc record\n";
     record = malloc(length);
     memcpy(record, (char*)page +offset, length);
-    //got record
+    //cout<< "got record\n";
     unsigned numberOfNullBytes = ceil(recordDescriptor.size() / 8.0);
     char nullIndicator[numberOfNullBytes];
     memset(nullIndicator, 0, numberOfNullBytes);
     memcpy(nullIndicator, (char*)record+sizeof(int), numberOfNullBytes);
     //set nullbytes in void* data
     memcpy(data, nullIndicator, numberOfNullBytes);
+    //cout<<"set nullindicator";
     //previous value of offset no longer necessary
-    offset = numberOfNullBytes + (sizeof(int) * (1+numberOfNullBytes));//offset to beginning of first field in record
+    offset = numberOfNullBytes + (sizeof(int) * (1+(int)recordDescriptor.size()));//offset to beginning of first field in record
     data_offset = numberOfNullBytes;//offset to end of void* data
     int nextval_offset= 0;//offset to location of end of first value
-    int start_nextval_offset= nextval_offsetsizeof(int) + numberOfNullBytes;//copy of nextval offset, never changes
+    int start_nextval_offset= sizeof(int) + numberOfNullBytes;//copy of nextval offset, never changes
     
     //for field in record
     for(int field = 0; field < (int)recordDescriptor.size(); field++){
         int next_val_location = 0;//location of nextval
         int field_len = 0;
+        cout << "nextval\n";
         memcpy(&next_val_location, (char*) record + start_nextval_offset + nextval_offset, sizeof(int));
         field_len = next_val_location - offset;
         int totalbytes = 0;
@@ -190,38 +195,47 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle, const vector<Attri
         
         if (nullIndicator[byteNumber] & mask){ //gets single bit.
             //means that entry is null
+            cout << "null";
             continue;
         }
         if (recordDescriptor[field].type == TypeInt){
+            cout << "typeint\n";
             totalbytes += recordDescriptor[field].length;
             int intAttribute;
             memset(&intAttribute, 0, sizeof(int));
             memcpy(&intAttribute, (char*)record+offset, sizeof(int));
-            memcpy(data+data_offset, intAttribute, sizeof(int));
+            memcpy(&data+data_offset, &intAttribute, sizeof(int));
         }
         else if(recordDescriptor[field].type == TypeReal){
-            next_value += recordDescriptor[field].length;
+            cout << "typereal\n";
+            totalbytes += recordDescriptor[field].length;
             float realAttribute;
             memset(&realAttribute, 0, sizeof(float));
-            memcpy(&realAttribute, (char*)record+offset, sizeof(float));
-            memcpy(data+data_offset, realAttribute, sizeof(float));
+            memcpy(&realAttribute, (char*)record + offset, sizeof(float));
+            memcpy(&data+data_offset, &realAttribute, sizeof(float));
         }
         else if(recordDescriptor[field].type == TypeVarChar){
+            cout << "type varchar\n";
             totalbytes = field_len;
             char varCharData[totalbytes];
+            cout<<
             memset(varCharData, 0, totalbytes);
-            memcpy(varCharData, (char *)record+offset, totalbytes);
+            memcpy(varCharData, (char *)record + offset, totalbytes);
+            cout << "reach for in varchar\n";
             int temp = data_offset;
+            
             for(int i = 0; i < totalbytes; i++){
-                memcpy(data+temp, varCharData[i], sizeof(char));
+                memcpy(&data+temp, &varCharData[i], sizeof(char));
                 temp += sizeof(char);
             }
         }
         else {
             return -1;
         }
+        cout << "out of loop, no null";
         offset += totalbytes;
         data_offset += totalbytes;
+    }
     return -1;
 }
 
