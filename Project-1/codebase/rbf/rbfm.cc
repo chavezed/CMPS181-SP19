@@ -156,58 +156,72 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle, const vector<Attri
     FileHandle.readPage(RID.pageNum, page);
     int offset=0;
     int length=0;
+    int data_offset=0;
+    // record = malloc(100); //not necessary atm
+    int slot = PAGE_SIZE -((RID.slotNum - 1) * 2 * sizeof(int));//slot location
+    //copy get record from slot
+    memcpy(offset, (char*)page + slot, sizeof(int));
+    memcpy(length, (char*)page + slot + sizeof(int), sizeof(int));
     record = malloc(length);
-    int slot = PAGE_SIZE -((RID.slotNum - 1) * 2 * sizeof(int));
-    memcpy(offset, (char*)page + slot, sizeof(int))
-    memcpy(length, (char*)page + slot + sizeof(int), sizeof(int))
     memcpy(record, (char*)page +offset, length);
-
+    //got record
     unsigned numberOfNullBytes = ceil(recordDescriptor.size() / 8.0);
     char nullIndicator[numberOfNullBytes];
     memset(nullIndicator, 0, numberOfNullBytes);
     memcpy(nullIndicator, (char*)record+sizeof(int), numberOfNullBytes);
+    //set nullbytes in void* data
+    memcpy(data, nullIndicator, numberOfNullBytes);
     //previous value of offset no longer necessary
-    offset = numberOfNullBytes;
-    int next_value= sizeof(int) * (1 + (int)recodDescriptor.size())+ offset;
-
+    offset = numberOfNullBytes + (sizeof(int) * (1+numberOfNullBytes));//offset to beginning of first field in record
+    data_offset = numberOfNullBytes;//offset to end of void* data
+    int nextval_offset= 0;//offset to location of end of first value
+    int start_nextval_offset= nextval_offsetsizeof(int) + numberOfNullBytes;//copy of nextval offset, never changes
+    
+    //for field in record
     for(int field = 0; field < (int)recordDescriptor.size(); field++){
+        int next_val_location = 0;//location of nextval
+        int field_len = 0;
+        memcpy(&next_val_location, (char*) record + start_nextval_offset + nextval_offset, sizeof(int));
+        field_len = next_val_location - offset;
         int totalbytes = 0;
         int byteNumber = ceil( (field+1) / 8.0) - 1;
         char mask = 0x01 << (field % 8); // use modulo because only using mask on a byte (8 bits)
-
+        nextval_offset += sizeof(int);
+        
         if (nullIndicator[byteNumber] & mask){ //gets single bit.
             //means that entry is null
             continue;
         }
         if (recordDescriptor[field].type == TypeInt){
-            next_value += recordDescriptor[field].length;
+            totalbytes += recordDescriptor[field].length;
             int intAttribute;
             memset(&intAttribute, 0, sizeof(int));
-            memcpy(&intAttribute, (char*)data+offset, sizeof(int));
-            cout << intAttribute;
+            memcpy(&intAttribute, (char*)record+offset, sizeof(int));
+            memcpy(data+data_offset, intAttribute, sizeof(int));
         }
         else if(recordDescriptor[field].type == TypeReal){
             next_value += recordDescriptor[field].length;
             float realAttribute;
             memset(&realAttribute, 0, sizeof(float));
-            memcpy(&realAttribute, (char*)data+offset, sizeof(float));
-            cout << realAttribute;
+            memcpy(&realAttribute, (char*)record+offset, sizeof(float));
+            memcpy(data+data_offset, realAttribute, sizeof(float));
         }
         else if(recordDescriptor[field].type == TypeVarChar){
-            int temp=0;
-            memcpy(&temp, (char *)data+offset, sizeof(int));
-            offset += 4; //size of the int we just read
+            totalbytes = field_len;
             char varCharData[totalbytes];
             memset(varCharData, 0, totalbytes);
-            memcpy(varCharData, (char *)data+offset, totalbytes);
+            memcpy(varCharData, (char *)record+offset, totalbytes);
+            int temp = data_offset;
             for(int i = 0; i < totalbytes; i++){
-                cout << varCharData[i];
+                memcpy(data+temp, varCharData[i], sizeof(char));
+                temp += sizeof(char);
             }
         }
         else {
             return -1;
         }
-
+        offset += totalbytes;
+        data_offset += totalbytes;
     return -1;
 }
 
