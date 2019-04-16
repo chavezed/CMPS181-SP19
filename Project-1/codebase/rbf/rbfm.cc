@@ -120,7 +120,6 @@ int size_helper(const vector<Attribute> &recordDescriptor, const void *data, voi
 }
 
 RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const void *data, RID &rid) {
-    cout<<"insertRecord\n";
     void* page = malloc(PAGE_SIZE);
     void* formated = malloc(4080);
     memset((char*) page, 0, PAGE_SIZE);
@@ -132,7 +131,6 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Att
     int offset = PAGE_SIZE - (2 * sizeof(int));
     int num_slots=0;
     int free_space_offset=0;
-    cout << "line 135\n";
     while(fileHandle.readPage(page_num, page) == 0){
 
         memcpy(&num_slots,(char*) page+offset, sizeof(int));
@@ -150,9 +148,7 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Att
         memset((char*) page, 0, PAGE_SIZE);
         fileHandle.appendPage(page);
     }
-    cout << "pageNum :" << page_num<<"\n";
     int slot_location = (PAGE_SIZE - (sizeof(int) * 2 *(num_slots+2)));
-    cout << "slot location start :" << slot_location << "\n";
     memcpy((char*) page + free_space_offset, formated,size_of_record);
     //input new slot
     memcpy((char*) page + slot_location, &free_space_offset, sizeof(int));
@@ -215,7 +211,6 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle, const vector<Attri
             continue;
         }
         if (recordDescriptor[field].type == TypeInt){
-            cout << "typeint\n";
             totalbytes += recordDescriptor[field].length;
             int intAttribute;//temp variable
             memset(&intAttribute, 0, sizeof(int));
