@@ -49,8 +49,8 @@ int size_helper(const vector<Attribute> &recordDescriptor, const void *data, voi
     memcpy(nullIndicator, (char*)data, numberOfNullBytes);
     int attribute_size[numnberOfAttributes];
     int offset = numberOfNullBytes;
-    void* temp_data = malloc(100);
-    memset(temp_data, 0, 100);
+    void* temp_data = malloc(4080);
+    memset(temp_data, 0, 4080);
     int temp_data_offset = 0;
     for(int field = 0; field < numnberOfAttributes; field++){
         int totalbytes = 0;
@@ -122,9 +122,9 @@ int size_helper(const vector<Attribute> &recordDescriptor, const void *data, voi
 RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const void *data, RID &rid) {
     cout<<"insertRecord\n";
     void* page = malloc(PAGE_SIZE);
-    void* formated = malloc(100);
+    void* formated = malloc(4080);
     memset((char*) page, 0, PAGE_SIZE);
-    memset((char*) formated, 0, 100);
+    memset((char*) formated, 0, 4080);
 
     int size_of_record = size_helper(recordDescriptor, data, formated);
     int page_num=0;
@@ -171,7 +171,7 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Att
 }
 RC RecordBasedFileManager::readRecord(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const RID &rid, void *data) {
     void* page = malloc(PAGE_SIZE);
-    void* record = malloc(100);
+    void* record = malloc(4080);
     fileHandle.readPage(rid.pageNum, page);
     int offset=0;
     int length=0;
