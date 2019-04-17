@@ -43,20 +43,23 @@ RC RecordBasedFileManager::closeFile(FileHandle &fileHandle) {
 
 int size_helper(const vector<Attribute> &recordDescriptor, const void *data, void* formated){
     unsigned numberOfNullBytes = ceil(recordDescriptor.size() / 8.0);
-    int numnberOfAttributes = (int)recordDescriptor.size();
+    int numberOfAttributes = (int)recordDescriptor.size();
     char nullIndicator[numberOfNullBytes];
     memset(nullIndicator, 0, numberOfNullBytes);
     memcpy(nullIndicator, (char*)data, numberOfNullBytes);
-    int attribute_size[numnberOfAttributes];
+    int attribute_size[numberOfAttributes];
     int offset = numberOfNullBytes;
     void* temp_data = malloc(4080);
     memset(temp_data, 0, 4080);
     int temp_data_offset = 0;
-    for(int field = 0; field < numnberOfAttributes; field++){
+    for(int field = 0; field < numberOfAttributes; field++){
         int totalbytes = 0;
-
-        int byteNumber = ceil( (field+1) / 8.0) - 1;
-        char mask = 0x01 << (field % 8); // use modulo because only using mask on a byte (8 bits)
+        
+        // int byteNumber = ceil( (field+1) / 8.0) - 1;
+        // char mask = 0x01 << (field % 8); // use modulo because only using mask on a byte (8 bits)
+        
+        unsigned byteNumber = field / 8.0;
+        unsigned mask = 0x01 << (8 - 1 - (field % 8));
 
         if (nullIndicator[byteNumber] & mask){ //gets single bit.
             //means that entry is null
@@ -85,11 +88,6 @@ int size_helper(const vector<Attribute> &recordDescriptor, const void *data, voi
             char varCharData[totalbytes];
             memset(varCharData, 0, totalbytes);
             memcpy(varCharData, (char *)data+offset, totalbytes);
-            //  cout << "sizehelper varCharData :" ;
-            // for(int j=0; j < totalbytes; j++){
-            //    cout << varCharData[j]; 
-            // }
-            // cout << " \n";
             memcpy((char*) temp_data+temp_data_offset, &varCharData, totalbytes);
             temp_data_offset += totalbytes;
         }
@@ -101,15 +99,19 @@ int size_helper(const vector<Attribute> &recordDescriptor, const void *data, voi
         offset += totalbytes;
         // cout <<"offset :"<< offset << "\n";
     }
-    int size_of_record = offset + (numnberOfAttributes * sizeof(int));
+    
+    // below includes length of varchar meta data??
+     int size_of_record = offset + (numberOfAttributes * sizeof(int));
+
+    
     memset(formated, 0, size_of_record);
-    memcpy((char*)formated, &numnberOfAttributes, sizeof(int)); // number of attributes
+    memcpy((char*)formated, &numberOfAttributes, sizeof(int)); // number of attributes
     memcpy((char*)formated + sizeof(int), nullIndicator, numberOfNullBytes);//null array
 
     int current_offset = sizeof(int) + numberOfNullBytes;
-    int record_offset = numnberOfAttributes * sizeof(int);//assume start after null bytes
+    int record_offset = numberOfAttributes * sizeof(int);//assume start after null bytes
 
-    for(int i = 0; i < numnberOfAttributes; i++){
+    for(int i = 0; i < numberOfAttributes; i++){
         record_offset += attribute_size[i];
         memcpy((char*)formated + current_offset, &record_offset, sizeof(int));
         current_offset += sizeof(int);
@@ -201,13 +203,18 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle, const vector<Attri
         // cout << "field_len :" << field_len << "\n";
         // cout << "field :" << field <<"\n";
         int totalbytes = 0;
-        int byteNumber = ceil( (field+1) / 8.0) - 1;
-        char mask = 0x01 << (field % 8); // use modulo because only using mask on a byte (8 bits)
+
+        // int byteNumber = ceil( (field+1) / 8.0) - 1;
+        // char mask = 0x01 << (field % 8); // use modulo because only using mask on a byte (8 bits)
+
+        unsigned byteNumber = field / 8.0;
+        unsigned mask = 0x01 << (8 - 1 - (field % 8));
+
         nextval_offset += sizeof(int);
         // cout << "before if\n";
         if (nullIndicator[byteNumber] & mask){ //gets single bit.
             //means that entry is null
-            cout << "null\n";
+            //cout << "null\n";
             continue;
         }
         if (recordDescriptor[field].type == TypeInt){
@@ -262,12 +269,17 @@ RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor
         cout << recordDescriptor[field].name << ": ";
         int totalbytes = 0;
 
-        int byteNumber = ceil( (field+1) / 8.0) - 1;
-        char mask = 0x01 << (field % 8); // use modulo because only using mask on a byte (8 bits)
+        
+        // int byteNumber = ceil( (field+1) / 8.0) - 1;
+        // char mask = 0x01 << (field % 8); // use modulo because only using mask on a byte (8 bits)
+        
+
+        unsigned byteNumber = field / 8.0;
+        unsigned mask = 0x01 << (8 - 1 - (field % 8));
 
         if (nullIndicator[byteNumber] & mask){ //gets single bit.
             //means that entry is null
-            cout << endl;
+            cout << "NULL" << endl;
             continue;
         }
         if (recordDescriptor[field].type == TypeInt){
