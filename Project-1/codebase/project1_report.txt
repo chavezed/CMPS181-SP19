@@ -1,21 +1,69 @@
 1. Basic information
-Team number:
+Team number: 4
 Student ID of submitter: 
-Student Name of submitter: 
+	1559699
+Student Name of submitter:
+	Eduardo Chavez
 Other Team Members:
+	Kevin Schumacher
+	Keenan Yamasaki
 
 
 2. Internal Record Format
 - Show your record format design and describe how your design satisfies O(1) field access. If not, just mention that you haven't implemented this feature.
+	Our record format is the following:
+	| numberOfFields | nullIndicator | fieldOffsetDirectory | field_1 | field_2 | ... | field_n |
+	numberOfFields: corresponds to how many fields are stored in the current record.
+	nullIndicator: same as nullIndicator that was passed in from data
+	fieldOffsetDirectory: contains numberOfFields entries where each entry corresponds to where field 'i' ends within the record
+	field i: int, float or varchar fields. For varchar, we do not store the length of the VarChar before the actual VarChar field anymore.
+
+	We chose to store the offset of the fields within the record inside the fieldOffsetDirectory. 
+	At each position inside the directory, we stored the position where the field ends.
+	So to retrieve where field 'j' starts, we can simply check where the previous field (j - 1) ended.
+		offset_start = sizeof(int) + lengthOfNullIndicator + ( (j - 1) * sizeof(int));
+
+	If given the position of a field within a record, we can retrive it in O(1) time using a similar approach as above.
+
 - Describe how you store a VarChar field.
+	A VarChar field is now stored similar to how an int or float are stored. The length of the VarChar field is no longer
+	being stored before the VarChar data.
+
+	To find the length of a VarChar field we must now do the following:
+	Assume that VarChar field is located at position 'j'
+		offset_start = sizeof(int) + lengthOfNullIndicator + ( (j - 1) * sizeof(int));
+		offset_end = sizeof(int) + lengthOfNullIndicator + ( j * sizeof(int));
+		VarCharLength = offset_end - offset_start;
 
 
 3. Page Format
 - Show your page format design
+	We chose the following format for our pages:
+
+	BACK_OF_PAGE
+	|| header.freeSpaceOffset | header.numberOfSlots | slotEntry1.recordLength | slotEntry1.offset | ... | slotEntry_n.recordLength | slotEntry_n.offset |
+		****** FREE_SPACE ****** | record_n | ... | record_1 || FRONT_OF_PAGE
+
+	Records are being stored at the front of the page.
+	Page header information (freeSpaceOffset and numberOfSlots) and slot entries (recordLength and offset) are being stored at the back of the page.
+	Free space is being kept in the center of the page.
+	As more and more records are being entered into a page, the new slot entries and the new records are growing towards each other.
+	BACK OF PAGE || header | slot entries | -->> Free Space <<-- | records || FRONT OF PAGE
 
 
 4. Implementation Detail
 - Other implementation details goes here.
+
+	We use a helper function "size_helper" inside the insertRecord function.
+	size_helper (const vector<Attribute> &recordDescriptor, const void* data, void* formated) does the following:
+	1) grabs the nullIndicator from data
+	2) collect the length of each field to later use for the field offset directory
+	3) store each field into a temporary memory location we called temp_data
+	4) copy the fields from temp_data to allocated memory (formated) into their corresponding positions (past fieldCount, nullIndicator and fieldOffsetDirectory)
+	5) copy in the field count and nullIndicator into allocated memory (formated)
+	6) populate the field offset directory
+	7) return the size of the record
+
 
 
 5. Other (optional)
