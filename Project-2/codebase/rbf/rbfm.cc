@@ -94,9 +94,19 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Att
 
     SlotDirectoryHeader slotHeader = getSlotDirectoryHeader(pageData);
 
+    // to fill in slots that were in the middle from deleted records (if they exist)
+    // otherwise loop will exit when j = recordEntriesNumber
+    unsigned j;
+    for (j = 0; j < slotHeader.recordEntriesNumber; ++j) {
+        SlotDirectoryRecordEntry tempSlotEntry = getSlotDirectoryRecordEntry (pageData, j);
+        if (tempSlotEntry.length == 0)
+            break;
+    }
+
     // Setting up the return RID.
     rid.pageNum = i;
-    rid.slotNum = slotHeader.recordEntriesNumber;
+    //rid.slotNum = slotHeader.recordEntriesNumber;
+    rid.slotNum = j;
 
     // Adding the new record reference in the slot directory.
     SlotDirectoryRecordEntry newRecordEntry;
@@ -533,7 +543,7 @@ RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle, const vector<Att
 }
 
 RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const void *data, const RID &rid) {
-    
+
     return -1;
 }
 
