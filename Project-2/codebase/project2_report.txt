@@ -1,12 +1,12 @@
 1. Basic information
-Team number (e.g., 01) : 
-#1 Submitter ID : 
-#1 Submitter Name : 
+Team Number : 
+Student ID# of Submitter:
+Name of Submitter: 
+ID#s and Names for others on the Team
 
 
-
-2. Meta-data
-- Show your meta-data design (Tables and Columns table) and information about each column.
+2. Metadata
+- Show your metadata design (Tables and Columns table) and information about each column.
 
 
 3. Internal Record Format
@@ -21,14 +21,17 @@ Team number (e.g., 01) :
 
 
 5. File Format
-- Show your file format design
+- Show your file format design.
 
 
 
 6. Implementation Detail
-- Other implementation details goes here.
+- Other implementation details goes here.  For example:  
+- Describe your use of Forwarding Addresses, including what happens when a Forwarding Address needs to be forwarded to yet another page.
+- Describe how a scan is done, touching each record once even when there are Forwarding Addresses.
+- Describe how you determine that a previously slot on a page is empty (after record is deleted), so that the slot can be re-used for another record.  (Yes, a record's rid is supposed to be permanent, but only while the record exists.)
 
 
 7. Other (optional)
-- Freely use this section to tell us about things that are related to the project 2, but not related to the other sections (optional)
+- Freely use this section to tell us about things that are related to the project 2, but not related to the other sections, such as design and implementation information for Advanced Features, if you've implemented them (optional).
 
