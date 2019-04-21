@@ -1,6 +1,6 @@
 - Modify the "CODEROOT" variable in makefile.inc to point to the root of your code base if necessary.
 
-- Copy your own implementation of RBF component to folder "rbf"
+- Copy your own implementation of RBF component to folder "rbf", if you want to.
 
 - Implement the Relation Manager (RM):
 
