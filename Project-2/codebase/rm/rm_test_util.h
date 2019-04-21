@@ -20,8 +20,8 @@ RecordBasedFileManager *rbfm = RecordBasedFileManager::instance();
 
 RelationManager *rm = RelationManager::instance();
 
-// This code is required for testing to meausre the memory usage of your code.
-// If you can't compile the codebase because of this function, you can safely comment this function or remove it.
+// This code is required for testing to measure the memory usage of your code.
+// If you can't compile the codebase because of this function, you can safely comment this function out or remove it.
 void memProfile()
 {
     int who = RUSAGE_SELF;
