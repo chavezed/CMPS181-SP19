@@ -8,6 +8,8 @@
 RecordBasedFileManager* RecordBasedFileManager::_rbf_manager = NULL;
 PagedFileManager *RecordBasedFileManager::_pf_manager = NULL;
 
+bool sortByIncreasingOffset (const SlotDirectoryRecordEntry &lhs, const SlotDirectoryRecordEntry &rhs);
+
 RecordBasedFileManager* RecordBasedFileManager::instance()
 {
     if(!_rbf_manager)
@@ -447,3 +449,180 @@ void RecordBasedFileManager::setRecordAtOffset(void *page, unsigned offset, cons
         header_offset += sizeof(ColumnOffset);
     }
 }
+
+bool sortByIncreasingOffset (const SlotDirectoryRecordEntry &lhs, const SlotDirectoryRecordEntry &rhs) {
+    return lhs.offset < rhs.offset;
+}
+
+RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const RID &rid) {
+    void* page = malloc (PAGE_SIZE);
+    fileHandle.readPage (rid.pageNum, page);
+    SlotDirectoryRecordEntry recordEntry = getSlotDirectoryRecordEntry (page, rid.slotNum);
+
+    if (recordEntry.length == 0) {
+        free (page);
+        return RBFM_RECORD_DELETED;
+    }
+    else if (recordEntry.offset < 0) {
+        RID newRID;
+        newRID.pageNum = recordEntry.length;
+        newRID.slotNum = -1 * recordEntry.offset;
+
+        // mark the slot entry as deleted
+        recordEntry.length = 0;
+        recordEntry.offset = 0;
+
+        SlotDirectoryHeader slotHeader = getSlotDirectoryHeader(page);
+        // check if the slot entry is the last one in the directory
+        // can be deleted since it will not affect slotNum of RIDs
+        if (rid.slotNum == (slotHeader.recordEntriesNumber - 1)) {
+            slotHeader.recordEntriesNumber -= 1;
+        }
+
+        fileHandle.writePage(rid.pageNum, page);
+        free (page);
+        return deleteRecord (fileHandle, recordDescriptor, newRID);
+    }
+    // record is in current page since offset > 0
+    else {
+        SlotDirectoryHeader slotHeader = getSlotDirectoryHeader (page);
+
+        // check if the slot entry is the last one in the directory
+        // can be deleted since it will not affect slotNum of RIDs
+        if (rid.slotNum == (slotHeader.recordEntriesNumber - 1)) {
+            slotHeader.recordEntriesNumber -= 1;
+        }
+
+        vector <SlotDirectoryRecordEntry> slotEntryList;
+        unsigned i;
+        for (i = 0; i < slotHeader.recordEntriesNumber; ++i) {
+            SlotDirectoryRecordEntry slotEntryTemp = getSlotDirectoryRecordEntry (page, i);
+            // if record was deleted or recordEntry equals currentRecord, continue
+            if (slotEntryTemp.length == 0 or slotEntryTemp.offset == recordEntry.offset)
+                continue;
+            // if slotEntryTemp record is located after recordEntry, push onto list
+            // need to compact records starting from smallest offset to largest
+            if (slotEntryTemp.offset > recordEntry.offset)
+                slotEntryList.push_back (slotEntryTemp);
+        }
+
+        // sort slotEntries by increasing offset to start page compaction
+        sort (slotEntryList.begin(), slotEntryList.end(), sortByIncreasingOffset);
+
+        unsigned compactStartOffset = recordEntry.offset;
+        for (i = 0; i < slotEntryList.size(); ++i) {
+            memmove((char*)page + compactStartOffset, (char*)page + slotEntryList[i].offset,
+                    slotEntryList[i].length);
+            slotEntryList[i].offset = compactStartOffset;
+            compactStartOffset += slotEntryList[i].length;
+        }
+
+        // update freespaceoffset
+        slotHeader.freeSpaceOffset = compactStartOffset;
+        // set slot to DELETED
+        recordEntry.length = 0;
+        recordEntry.offset = 0;
+
+        fileHandle.writePage (rid.pageNum, page);
+        free(page);
+        return SUCCESS;
+    }
+
+    // should never reach here
+    return -1;
+}
+
+RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const void *data, const RID &rid) {
+    
+    return -1;
+}
+
+RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const RID &rid, const string &attributeName, void *data) {
+    void *page = malloc(PAGE_SIZE);
+    if (fileHandle.readPage(rid.pageNum, page))
+        return RBFM_READ_FAILED;
+
+    SlotDirectoryRecordEntry recordEntry = getSlotDirectoryRecordEntry(page, rid.slotNum);
+
+    // checks the following:
+    // 1) record was deleted, exit
+    // 2) record was moved, recurse until we find the page the record is on
+    // 3) record on current page, continue
+
+    if (recordEntry.length == 0) {
+        free (page);
+        return RBFM_RECORD_DELETED;
+    }
+    else if (recordEntry.offset < 0) {
+        RID newRID;
+        newRID.pageNum = recordEntry.length;
+        newRID.slotNum = -1 * recordEntry.offset;
+        free (page);
+        return readAttribute (fileHandle, recordDescriptor, newRID, attributeName, data);
+    }
+    else {
+        bool attributeFound = false;
+        unsigned i = 0;
+
+        for (i = 0; i < recordDescriptor.size(); ++i) {
+            if (attributeName == recordDescriptor[i].name) {
+                attributeFound = true;
+                break;
+            }
+        }
+
+        if (not attributeFound)
+            return RBFM_ATTR_NOT_FOUND;
+
+        // Grab Attribute count and NullIndicatorLength to offset into the
+        // attribute offset directory
+        RecordLength len = 0;
+        memcpy(&len, (char*)page + recordEntry.offset, sizeof(RecordLength));
+
+        unsigned nullIndicatorSize = getNullIndicatorSize(len);
+
+        unsigned recordHeaderSize = sizeof(RecordLength) + nullIndicatorSize;
+
+        ColumnOffset startAttributeOffset = 0;
+        ColumnOffset endAttributeOffset = 0;
+
+        char* start = (char*)page + recordEntry.offset;
+
+        // If the first field is the target, must point offset past
+        // Attribute Count, NullIndicatorLength and AttributeOffsetDirectory
+        if (i == 0) {
+            startAttributeOffset = recordHeaderSize + (len * sizeof(ColumnOffset));
+        }
+        else {
+            // go into the offset directory before the target to find where the attribute starts
+            memcpy(&startAttributeOffset, start + recordHeaderSize + ((i - 1) * sizeof(ColumnOffset)), sizeof(ColumnOffset));
+        }
+
+        // go into the offset directory to find the offset where the target attribute ends
+        memcpy(&endAttributeOffset, start + recordHeaderSize + (i * sizeof(ColumnOffset)), sizeof(ColumnOffset));
+
+        memcpy(data, start + startAttributeOffset, endAttributeOffset - startAttributeOffset);
+
+        free(page);
+        return SUCCESS;
+    }
+    // should never reach here
+    return -1;
+}
+
+RC RecordBasedFileManager::scan(FileHandle &fileHandle,
+      const vector<Attribute> &recordDescriptor,
+      const string &conditionAttribute,
+      const CompOp compOp,                  // comparision type such as "<" and "="
+      const void *value,                    // used in the comparison
+      const vector<string> &attributeNames, // a list of projected attributes
+      RBFM_ScanIterator &rbfm_ScanIterator) {
+
+    return -1;
+}
+
+
+
+
+
+

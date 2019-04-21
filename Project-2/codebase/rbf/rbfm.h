@@ -19,6 +19,10 @@
 #define RBFM_WRITE_FAILED  6
 #define RBFM_SLOT_DN_EXIST 7
 
+//project 2
+#define RBFM_RECORD_DELETED 8
+#define RBFM_ATTR_NOT_FOUND 9
+
 using namespace std;
 
 // Record ID
