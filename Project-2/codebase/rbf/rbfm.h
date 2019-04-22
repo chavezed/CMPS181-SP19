@@ -186,6 +186,8 @@ private:
 
   void setRecordAtOffset(void *page, unsigned offset, const vector<Attribute> &recordDescriptor, const void *data);
   void getRecordAtOffset(void *record, unsigned offset, const vector<Attribute> &recordDescriptor, void *data);
+
+  void compactRecords(void* page, SlotDirectoryHeader &slotHeader, SlotDirectoryRecordEntry &recordEntry, unsigned compactStartOffset);
 };
 
 #endif

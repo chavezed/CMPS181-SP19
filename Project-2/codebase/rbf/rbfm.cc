@@ -8,7 +8,7 @@
 RecordBasedFileManager* RecordBasedFileManager::_rbf_manager = NULL;
 PagedFileManager *RecordBasedFileManager::_pf_manager = NULL;
 
-bool sortByIncreasingOffset (const SlotDirectoryRecordEntry &lhs, const SlotDirectoryRecordEntry &rhs);
+bool sortByDecreasingOffset (const SlotDirectoryRecordEntry &lhs, const SlotDirectoryRecordEntry &rhs);
 
 RecordBasedFileManager* RecordBasedFileManager::instance()
 {
@@ -94,19 +94,10 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Att
 
     SlotDirectoryHeader slotHeader = getSlotDirectoryHeader(pageData);
 
-    // to fill in slots that were in the middle from deleted records (if they exist)
-    // otherwise loop will exit when j = recordEntriesNumber
-    unsigned j;
-    for (j = 0; j < slotHeader.recordEntriesNumber; ++j) {
-        SlotDirectoryRecordEntry tempSlotEntry = getSlotDirectoryRecordEntry (pageData, j);
-        if (tempSlotEntry.length == 0)
-            break;
-    }
 
     // Setting up the return RID.
     rid.pageNum = i;
-    //rid.slotNum = slotHeader.recordEntriesNumber;
-    rid.slotNum = j;
+    rid.slotNum = slotHeader.recordEntriesNumber;
 
     // Adding the new record reference in the slot directory.
     SlotDirectoryRecordEntry newRecordEntry;
@@ -460,14 +451,17 @@ void RecordBasedFileManager::setRecordAtOffset(void *page, unsigned offset, cons
     }
 }
 
-bool sortByIncreasingOffset (const SlotDirectoryRecordEntry &lhs, const SlotDirectoryRecordEntry &rhs) {
-    return lhs.offset < rhs.offset;
-}
-
 RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const RID &rid) {
     void* page = malloc (PAGE_SIZE);
     fileHandle.readPage (rid.pageNum, page);
     SlotDirectoryRecordEntry recordEntry = getSlotDirectoryRecordEntry (page, rid.slotNum);
+    SlotDirectoryHeader slotHeader = getSlotDirectoryHeader(page);
+
+    // check if the slot entry is the last one in the directory
+    // can be deleted since it will not affect slotNum of RIDs
+    if (rid.slotNum == (slotHeader.recordEntriesNumber - 1)) {
+        slotHeader.recordEntriesNumber -= 1;
+    }
 
     if (recordEntry.length == 0) {
         free (page);
@@ -482,53 +476,14 @@ RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle, const vector<Att
         recordEntry.length = 0;
         recordEntry.offset = 0;
 
-        SlotDirectoryHeader slotHeader = getSlotDirectoryHeader(page);
-        // check if the slot entry is the last one in the directory
-        // can be deleted since it will not affect slotNum of RIDs
-        if (rid.slotNum == (slotHeader.recordEntriesNumber - 1)) {
-            slotHeader.recordEntriesNumber -= 1;
-        }
-
         fileHandle.writePage(rid.pageNum, page);
         free (page);
         return deleteRecord (fileHandle, recordDescriptor, newRID);
     }
     // record is in current page since offset > 0
     else {
-        SlotDirectoryHeader slotHeader = getSlotDirectoryHeader (page);
-
-        // check if the slot entry is the last one in the directory
-        // can be deleted since it will not affect slotNum of RIDs
-        if (rid.slotNum == (slotHeader.recordEntriesNumber - 1)) {
-            slotHeader.recordEntriesNumber -= 1;
-        }
-
-        vector <SlotDirectoryRecordEntry> slotEntryList;
-        unsigned i;
-        for (i = 0; i < slotHeader.recordEntriesNumber; ++i) {
-            SlotDirectoryRecordEntry slotEntryTemp = getSlotDirectoryRecordEntry (page, i);
-            // if record was deleted or recordEntry equals currentRecord, continue
-            if (slotEntryTemp.length == 0 or slotEntryTemp.offset == recordEntry.offset)
-                continue;
-            // if slotEntryTemp record is located after recordEntry, push onto list
-            // need to compact records starting from smallest offset to largest
-            if (slotEntryTemp.offset > recordEntry.offset)
-                slotEntryList.push_back (slotEntryTemp);
-        }
-
-        // sort slotEntries by increasing offset to start page compaction
-        sort (slotEntryList.begin(), slotEntryList.end(), sortByIncreasingOffset);
-
-        unsigned compactStartOffset = recordEntry.offset;
-        for (i = 0; i < slotEntryList.size(); ++i) {
-            memmove((char*)page + compactStartOffset, (char*)page + slotEntryList[i].offset,
-                    slotEntryList[i].length);
-            slotEntryList[i].offset = compactStartOffset;
-            compactStartOffset += slotEntryList[i].length;
-        }
-
-        // update freespaceoffset
-        slotHeader.freeSpaceOffset = compactStartOffset;
+        compactRecords (page, slotHeader, recordEntry, recordEntry.offset + recordEntry.length);
+        
         // set slot to DELETED
         recordEntry.length = 0;
         recordEntry.offset = 0;
@@ -543,8 +498,118 @@ RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle, const vector<Att
 }
 
 RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const void *data, const RID &rid) {
+    void* page = malloc (PAGE_SIZE);
+    fileHandle.readPage (rid.pageNum, page);
 
-    
+    SlotDirectoryHeader slotHeader = getSlotDirectoryHeader (page);
+    if (slotHeader.recordEntriesNumber < rid.slotNum)
+        return RBFM_SLOT_DN_EXIST;
+
+    SlotDirectoryRecordEntry recordEntry = getSlotDirectoryRecordEntry (page, rid.slotNum);
+    // record was moved
+    if (recordEntry.offset < 0) {
+        RID newRID;
+        newRID.pageNum = recordEntry.length;
+        newRID.slotNum = -1 * recordEntry.offset;
+        free(page);
+        return updateRecord (fileHandle, recordDescriptor, data, newRID);
+    }
+    // record in current page
+    else if (recordEntry.offset >= 0) {
+        unsigned pageFreeSpaceSize = getPageFreeSpaceSize (page);
+        unsigned recordSize = getRecordSize (recordDescriptor, data);
+
+        // 3 cases:
+        // 1) updatedRecordLength == currentRecordLength, update in place
+        // 2) updatedRecordLength < currentRecordLength, compact
+        // 3) updatedRecordLength > currentRecordLength
+        //    a) if enough freeSpace, remove record, compact, append record
+        //    b) else, find a page with free space, append record
+
+        if (recordSize == recordEntry.length) {
+            setRecordAtOffset(page, recordEntry.offset, recordDescriptor, data);
+            fileHandle.writePage (rid.pageNum, page);
+            free (page);
+            return SUCCESS;
+        }
+        else if (recordSize < recordEntry.length) {
+            recordEntry.offset = recordEntry.offset + recordEntry.length - recordSize;
+            setRecordAtOffset (page, recordEntry.offset, recordDescriptor, data);
+            recordEntry.length = recordSize;
+            compactRecords (page, slotHeader, recordEntry, recordEntry.offset);
+
+            fileHandle.writePage (rid.pageNum, page);
+            free (page);
+            return SUCCESS;
+        }
+        // recordSize > recordEntry.length
+        // and slot wasn't previously deleted
+        else if (recordSize > recordEntry.length and recordEntry.length > 0) {
+            // record fits in the page
+            if (recordSize <= pageFreeSpaceSize) {
+                compactRecords (page, slotHeader, recordEntry, recordEntry.offset + recordEntry.length);
+                recordEntry.length = recordSize;
+                recordEntry.offset = slotHeader.freeSpaceOffset - recordSize;
+                setRecordAtOffset (page, recordEntry.offset, recordDescriptor, data);
+                slotHeader.freeSpaceOffset = recordEntry.offset;
+                fileHandle.writePage (rid.pageNum, page);
+                free (page);
+                return SUCCESS;
+            }
+            // record doesn't fit
+            else {
+                // "delete" record from page since it's going to be moved
+                compactRecords (page, slotHeader, recordEntry, recordEntry.offset + recordEntry.length);
+
+                // followed same format from solution insertRecord
+                bool pageFound = false;
+                unsigned targetPageNum;
+                void* targetPage = malloc (PAGE_SIZE);
+                for (targetPageNum = 0; targetPageNum < fileHandle.getNumberOfPages(); ++targetPageNum) {
+                    fileHandle.readPage (targetPageNum, targetPage);
+                    if (getPageFreeSpaceSize (targetPage) >= sizeof(SlotDirectoryRecordEntry) + recordSize) {
+                        pageFound = true;
+                        break;
+                    }
+                }
+
+                if (not pageFound)
+                    newRecordBasedPage(targetPage);
+
+                SlotDirectoryHeader targetPageSlotHeader = getSlotDirectoryHeader (targetPage);
+
+                // forwarding address
+                recordEntry.length = targetPageNum;
+                recordEntry.offset = -1 * targetPageSlotHeader.recordEntriesNumber;
+                setSlotDirectoryRecordEntry (page, rid.slotNum, recordEntry);
+
+                SlotDirectoryRecordEntry newRecordEntry;
+                newRecordEntry.length = recordSize;
+                newRecordEntry.offset = targetPageSlotHeader.freeSpaceOffset - recordSize;
+                setSlotDirectoryRecordEntry (targetPage, targetPageSlotHeader.recordEntriesNumber, newRecordEntry);
+
+                targetPageSlotHeader.freeSpaceOffset = newRecordEntry.offset;
+                targetPageSlotHeader.recordEntriesNumber += 1;
+                setSlotDirectoryHeader (targetPage, targetPageSlotHeader);
+
+                setRecordAtOffset (targetPage, newRecordEntry.offset, recordDescriptor, data);
+
+                if (pageFound) {
+                    fileHandle.writePage(targetPageNum, targetPage);
+                }
+                else {
+                    fileHandle.appendPage (targetPage);
+                }
+
+                fileHandle.writePage (rid.pageNum, page);
+                free (page);
+                return SUCCESS;
+            }
+
+        }
+        // update where slot length equals 0
+    }
+    // should never reach here
     return -1;
 }
 
@@ -633,7 +698,32 @@ RC RecordBasedFileManager::scan(FileHandle &fileHandle,
 }
 
 
+// helper project 2
 
+bool sortByDecreasingOffset (const SlotDirectoryRecordEntry &lhs, const SlotDirectoryRecordEntry &rhs) {
+    return lhs.offset > rhs.offset;
+}
 
+void RecordBasedFileManager::compactRecords(void* page, SlotDirectoryHeader &slotHeader, SlotDirectoryRecordEntry &recordEntry, unsigned compactStartOffset) {
+    vector<SlotDirectoryRecordEntry> slotEntryList;
+    unsigned i;
+    for (i = 0; i < slotHeader.recordEntriesNumber; ++i) {
+        SlotDirectoryRecordEntry slotEntryTemp = getSlotDirectoryRecordEntry (page, i);
+        if (slotEntryTemp.length == 0 or slotEntryTemp.offset == recordEntry.offset)
+            continue;
+        if (slotEntryTemp.offset < recordEntry.offset)
+            slotEntryList.push_back (slotEntryTemp);
+    }
 
+    sort (slotEntryList.begin(), slotEntryList.end(), sortByDecreasingOffset);
 
+    for (i = 0; i < slotEntryList.size(); ++i) {
+        memmove ((char*)page + compactStartOffset - slotEntryList[i].length,
+                 (char*)page + slotEntryList[i].offset,
+                 slotEntryList[i].length);
+        compactStartOffset -= slotEntryList[i].length;
+        slotEntryList[i].offset = compactStartOffset;
+    }
+
+    slotHeader.freeSpaceOffset = compactStartOffset;
+}
