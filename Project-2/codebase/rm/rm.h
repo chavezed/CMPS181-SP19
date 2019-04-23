@@ -69,6 +69,8 @@ protected:
 
 private:
   static RelationManager *_rm;
+  static RecordBasedFileManager *_rbf_manager;
+  static PagedFileManager *_pf_manager;
 };
 
 #endif
