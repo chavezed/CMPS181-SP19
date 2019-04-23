@@ -72,7 +72,7 @@ RC tablesInsert(char* name, int id, const vector<Attribute> &table_recordDescrip
   free(input);
 
   for (int i = 0; i < column_recordDescriptor.size(); i++){
-    columsInsert(id, 
+    columnsInsert(id, 
       column_recordDescriptor[i].name, 
       column_recordDescriptor[i].type, 
       column_recordDescriptor[i].length, i);
