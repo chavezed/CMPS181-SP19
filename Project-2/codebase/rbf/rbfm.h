@@ -28,7 +28,7 @@ using namespace std;
 // Record ID
 typedef struct
 {
-  unsigned pageNum;	// page number
+  unsigned pageNum; // page number
   unsigned slotNum; // slot number in the page
 } RID;
 
@@ -51,7 +51,7 @@ typedef enum { EQ_OP = 0, // no condition// =
            GT_OP,      // >
            GE_OP,      // >=
            NE_OP,      // !=
-           NO_OP	   // no condition
+           NO_OP     // no condition
 } CompOp;
 
 // Slot directory headers for page organization
@@ -89,14 +89,24 @@ The scan iterator is NOT required to be implemented for the part 1 of the projec
 //  rbfmScanIterator.close();
 
 class RBFM_ScanIterator {
+private:
+  FileHandle &fileHandle;
+  vector<Attribute> recordDescriptor;
+  string conditionAttribute;
+  CompOp compOp;                  // comparision type such as "<" and "="
+  void *value;                    // used in the comparison
+  vector<string> attributeNames; // a list of projected attributes
 public:
   RBFM_ScanIterator() {};
   ~RBFM_ScanIterator() {};
 
+  RC initailize(FileHandle &fileH, vector<Attribute> recDes, string condAtt, CompOp cOp, void *v, vector<string> attNames){};
+
   // Never keep the results in the memory. When getNextRecord() is called, 
   // a satisfying record needs to be fetched from the file.
   // "data" follows the same format as RecordBasedFileManager::insertRecord().
-  RC getNextRecord(RID &rid, void *data) { return RBFM_EOF; };
+  RC getNextRecord(RID &rid, void *data) {};
+  RC filter(RID rid, void* data) {};
   RC close() { return -1; };
 };
 

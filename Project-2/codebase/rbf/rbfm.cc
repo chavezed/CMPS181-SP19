@@ -51,7 +51,7 @@ RC RecordBasedFileManager::createFile(const string &fileName) {
 }
 
 RC RecordBasedFileManager::destroyFile(const string &fileName) {
-	return _pf_manager->destroyFile(fileName);
+    return _pf_manager->destroyFile(fileName);
 }
 
 RC RecordBasedFileManager::openFile(const string &fileName, FileHandle &fileHandle) {
@@ -259,7 +259,7 @@ void RecordBasedFileManager::newRecordBasedPage(void * page)
     SlotDirectoryHeader slotHeader;
     slotHeader.freeSpaceOffset = PAGE_SIZE;
     slotHeader.recordEntriesNumber = 0;
-	memcpy (page, &slotHeader, sizeof(SlotDirectoryHeader));
+    memcpy (page, &slotHeader, sizeof(SlotDirectoryHeader));
 }
 
 unsigned RecordBasedFileManager::getRecordSize(const vector<Attribute> &recordDescriptor, const void *data) 
@@ -694,11 +694,187 @@ RC RecordBasedFileManager::scan(FileHandle &fileHandle,
       const vector<string> &attributeNames, // a list of projected attributes
       RBFM_ScanIterator &rbfm_ScanIterator) {
 
+    rbfm_ScanIterator.initailize(fileHandle, recordDescriptor, conditionAttribute, compOp, value, attributeNames);
+    return SUCCESS;
+}
+
+RC RBFM_ScanIterator::getNextRecord(RID &rid, void *data) { 
+    int max_pages = (int)_pf_manager->getNumberOfPages();
+    if (rid.pageNum < max_pages){
+        return -1;
+    }
+    void *page = malloc(PAGE_SIZE);
+    fileHandle.readPage(rid.pageNum, page);
+    SlotDirectoryHeader headerOfPage = getSlotDirectoryHeader(page);
+    int max_record = headerOfPage.recordEntriesNumber;
+
+    if(rid.pageNum == max_pages && max_record > (rid.slotNum + 1) ){
+        free(page);
+        return RBFM_EOF;
+    }
+    else if( max_record > (rid.slotNum + 1) ){
+        free(page);
+        rid.pageNum += 1;
+        rid.slotNum = 0;
+        return this->getNextRecord(rid, data);
+    }
+
+    //this for loop finds the attributes that we are going to use.
+    vector<tuple<Attribute, int> > att;
+    for(int i = 0; i <= recordDescriptor.size(); i++){
+        if(find(attributeNames.begin(), attributeNames.end(), recordDescriptor[i].name) != attributeNames.end()){
+            att.push_back(make_tuple(recordDescriptor[i], i)); //need the field number as well as the attribute description.
+        }
+    }
+
+    if(this->filter(rid) == SUCCESS){//this is a value that we want to use.
+        void *tempData = malloc(PAGE_SIZE);
+        int offset = 0;
+        //creating nullIndicator.
+        int nullIndicatorSize = getNullIndicatorSize(attributeNames.size());
+        void *nullIndicator = malloc(nullIndicatorSize);
+        memset(nullIndicator, 0, nullIndicatorSize);
+        memset((char*) data, 0, PAGE_SIZE);
+        offset = nullIndicatorSize;//putting offset in write possition
+        //for loop appends data after the null bits
+        for(int i = 0; i <= att.size(); i++){
+            //get the data
+            _rbf_manager->readAttribute(fileHandle, recordDescriptor, rid, conditionAttribute, tempData);
+            //check for null
+            if((char*)tempData == NULL){
+                setBit((char *)nullIndicator, get<1>(att[i]));
+                continue;
+            }
+            //check for varChar.
+            if(get<0>(att[i]).type == TypeVarChar){
+                int sizeofChar = 0;
+                memcpy(&sizeofChar, tempData, sizeof(int))
+                memcpy((char *)data + offset, tempData, sizeofChar+sizeof(int) );
+                offset += sizeofChar+sizeof(int);
+            }
+            else{
+                memcpy((char *)data + offset, tempData, sizeof(int));
+                offset += sizeof(int); 
+            }
+        }
+        memcpy((char *)data, (char *)nullIndicator, nullIndicatorSize);//puts the null bits at the front.
+        free(nullBits);
+        free(tempData);
+        free(page);
+        return SUCCESS;
+    }
+    else{
+        free(page);
+        rid.slotNum += 1;
+        return this->getNextRecord(rid, data);//find next possible record.
+    } 
+};
+RC RBFM_ScanIterator::close() { return -1; };
+
+
+RC RBFM_ScanIterator::initailize(FileHandle &fileH, vector<Attribute> recDes, string condAtt, CompOp cOp, void *v, vector<string> attNames){
+    fileHandle = fileH;
+    recordDescriptor = recDes;
+    conditionAttribute = condAtt;
+    compOp = cOp;
+    value = v;
+    attributeNames = attNames;
+    return SUCCESS;
+};
+
+// helper project 2
+
+RC RBFM_ScanIterator::filter(RID rid){
+    if (compOp == NO_OP){
+        return SUCCESS;
+    }
+    void *data = malloc(PAGE_SIZE);
+    _rbf_manager->readAttribute(fileHandle, recordDescriptor, rid, conditionAttribute, data);
+    bool works = false;
+    int i;
+    for (i = 0; i <= recordDescriptor.size(); i++){
+        if(recordDescriptor.name == condAtt){
+            break;
+        }
+    }
+
+    if (recordDescriptor[i].type == TypeVarChar){
+        char *compData = (char *) data;
+        if (compOp == EQ_OP) {
+            works = (compData == (char *) value);
+        }
+        else if (compOp == LT_OP){
+            works = (compData < (char *) value);
+        }
+        else if (compOp == LE_OP){
+            works = (compData <= (char *) value);
+        }
+        else if (compOp == GT_OP){
+            works = (compData > (char *) value);
+        }
+        else if (compOp == GE_OP){
+            works = (compData >=(char *) value);
+        }
+        else if (compOp == NE_OP){
+            works = (compData != (char *) value);
+        }
+    }
+
+    else if (recordDescriptor[i].type == TypeInt) {
+        int compData = (int)data;
+        if (compOp == EQ_OP) {
+            works = (compData == (int) value);
+        }
+        else if (compOp == LT_OP){
+            works = (compData < (int) value);
+        }
+        else if (compOp == LE_OP){
+            works = (compData <= (int) value);
+        }
+        else if (compOp == GT_OP){
+            works = (compData > (int) value);
+        }
+        else if (compOp == GE_OP){
+            works = (compData >=(int) value);
+        }
+        else if (compOp == NE_OP){
+            works = (compData != (int) value);
+        }
+    }
+
+    else {
+        float compData = (float)data;
+        if (compOp == EQ_OP) {
+            works = (compData == (float) value);
+        }
+        else if (compOp == LT_OP){
+            works = (compData < (float) value);
+        }
+        else if (compOp == LE_OP){
+            works = (compData <= (float) value);
+        }
+        else if (compOp == GT_OP){
+            works = (compData > (float) value);
+        }
+        else if (compOp == GE_OP){
+            works = (compData >=(float) value);
+        }
+        else if (compOp == NE_OP){
+            works = (compData != (float) value);
+        }
+    }
+
+    free(data);
+    if (works){
+        return SUCCESS;
+    }
     return -1;
 }
 
-
-// helper project 2
+void setBit(char *nullIndicator, int field){
+    int indicatorIndex = field / CHAR_BIT;
+    nullIndicator[indicatorIndex] |= 1 << (CHAR_BIT - 1 - (field % CHAR_BIT));
+}
 
 bool sortByDecreasingOffset (const SlotDirectoryRecordEntry &lhs, const SlotDirectoryRecordEntry &rhs) {
     return lhs.offset > rhs.offset;
