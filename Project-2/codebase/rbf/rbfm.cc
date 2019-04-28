@@ -63,16 +63,17 @@ RC RecordBasedFileManager::closeFile(FileHandle &fileHandle) {
 }
 
 RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const void *data, RID &rid) {
-    // Gets the size of the record.
+    // Gets the size of the record
     unsigned recordSize = getRecordSize(recordDescriptor, data);
 
-    // Cycles through pages looking for enough free space for the new entry.
+    // Cycles through pages looking for enough free space for the new entry
     void *pageData = malloc(PAGE_SIZE);
     if (pageData == NULL)
         return RBFM_MALLOC_FAILED;
     bool pageFound = false;
     unsigned i;
     unsigned numPages = fileHandle.getNumberOfPages();
+    unsigned targetSlotNum;
     for (i = 0; i < numPages; i++)
     {
         if (fileHandle.readPage(i, pageData))
@@ -81,15 +82,24 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Att
         // When we find a page with enough space (accounting also for the size that will be added to the slot directory), we stop the loop.
         if (getPageFreeSpaceSize(pageData) >= sizeof(SlotDirectoryRecordEntry) + recordSize)
         {
+            SlotDirectoryHeader tempSlotHeader = getSlotDirectoryHeader (pageData);
+            // find a dead slot; if none, append new slot
+            for (targetSlotNum = 0; targetSlotNum < tempSlotHeader.recordEntriesNumber; ++targetSlotNum) {
+                SlotDirectoryRecordEntry tempSlotEntry = getSlotDirectoryRecordEntry (pageData, targetSlotNum);
+                if (tempSlotEntry.length == 0 and tempSlotEntry.offset == 0)
+                    break;
+            }
             pageFound = true;
             break;
         }
     }
 
+
     // If we can't find a page with enough space, we create a new one
     if(!pageFound)
     {
         newRecordBasedPage(pageData);
+        targetSlotNum = 0;
     }
 
     SlotDirectoryHeader slotHeader = getSlotDirectoryHeader(pageData);
@@ -97,7 +107,7 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Att
 
     // Setting up the return RID.
     rid.pageNum = i;
-    rid.slotNum = slotHeader.recordEntriesNumber;
+    rid.slotNum = targetSlotNum;
 
     // Adding the new record reference in the slot directory.
     SlotDirectoryRecordEntry newRecordEntry;
@@ -107,7 +117,11 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Att
 
     // Updating the slot directory header.
     slotHeader.freeSpaceOffset = newRecordEntry.offset;
-    slotHeader.recordEntriesNumber += 1;
+
+    // only increment records in page if slot needs to be appended or new page was created
+    if (not pageFound or slotHeader.recordEntriesNumber == targetSlotNum)
+        slotHeader.recordEntriesNumber += 1;
+
     setSlotDirectoryHeader(pageData, slotHeader);
 
     // Adding the record data.
@@ -144,11 +158,26 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle, const vector<Attri
     // Gets the slot directory record entry data
     SlotDirectoryRecordEntry recordEntry = getSlotDirectoryRecordEntry(pageData, rid.slotNum);
 
-    // Retrieve the actual entry data
-    getRecordAtOffset(pageData, recordEntry.offset, recordDescriptor, data);
+    // check if record has been moved or deleted
+    if (recordEntry.length == 0 and recordEntry.offset == 0) {
+        free (pageData);
+        return RBFM_RECORD_DELETED;
+    }
+    else if (recordEntry.offset <= 0) {
+        RID newRID;
+        newRID.pageNum = recordEntry.length;
+        newRID.slotNum = -1 * recordEntry.offset;
+        free(pageData);
+        return readRecord (fileHandle, recordDescriptor, newRID, data);
+    }
+    else {
+        // Retrieve the actual entry data
+        getRecordAtOffset(pageData, recordEntry.offset, recordDescriptor, data);
 
-    free(pageData);
-    return SUCCESS;
+        free(pageData);
+        return SUCCESS;
+    }
+    return -1;
 }
 
 RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor, const void *data) {
@@ -457,17 +486,19 @@ RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle, const vector<Att
     SlotDirectoryRecordEntry recordEntry = getSlotDirectoryRecordEntry (page, rid.slotNum);
     SlotDirectoryHeader slotHeader = getSlotDirectoryHeader(page);
 
+    if (recordEntry.length == 0 and recordEntry.offset == 0) {
+        free (page);
+        return RBFM_RECORD_DELETED;
+    }
+
     // check if the slot entry is the last one in the directory
     // can be deleted since it will not affect slotNum of RIDs
     if (rid.slotNum == (slotHeader.recordEntriesNumber - 1)) {
         slotHeader.recordEntriesNumber -= 1;
+        setSlotDirectoryHeader (page, slotHeader);
     }
 
-    if (recordEntry.length == 0) {
-        free (page);
-        return RBFM_RECORD_DELETED;
-    }
-    else if (recordEntry.offset < 0) {
+    else if (recordEntry.offset <= 0) {
         RID newRID;
         newRID.pageNum = recordEntry.length;
         newRID.slotNum = -1 * recordEntry.offset;
@@ -475,6 +506,7 @@ RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle, const vector<Att
         // mark the slot entry as deleted
         recordEntry.length = 0;
         recordEntry.offset = 0;
+        setSlotDirectoryRecordEntry (page, rid.slotNum, recordEntry);
 
         fileHandle.writePage(rid.pageNum, page);
         free (page);
@@ -483,10 +515,11 @@ RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle, const vector<Att
     // record is in current page since offset > 0
     else {
         compactRecords (page, slotHeader, recordEntry, recordEntry.offset + recordEntry.length);
-        
+
         // set slot to DELETED
         recordEntry.length = 0;
         recordEntry.offset = 0;
+        setSlotDirectoryRecordEntry (page, rid.slotNum, recordEntry);
 
         fileHandle.writePage (rid.pageNum, page);
         free(page);
@@ -502,12 +535,18 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle, const vector<Att
     fileHandle.readPage (rid.pageNum, page);
 
     SlotDirectoryHeader slotHeader = getSlotDirectoryHeader (page);
-    if (slotHeader.recordEntriesNumber < rid.slotNum)
+    if (slotHeader.recordEntriesNumber < rid.slotNum) {
+        free (page);
         return RBFM_SLOT_DN_EXIST;
+    }
 
     SlotDirectoryRecordEntry recordEntry = getSlotDirectoryRecordEntry (page, rid.slotNum);
+    if (recordEntry.length == 0 and recordEntry.offset == 0) {
+        free(page);
+        return RBFM_RECORD_DELETED;
+    }
     // record was moved
-    if (recordEntry.offset < 0) {
+    else if (recordEntry.offset <= 0) {
         RID newRID;
         newRID.pageNum = recordEntry.length;
         newRID.slotNum = -1 * recordEntry.offset;
@@ -515,7 +554,7 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle, const vector<Att
         return updateRecord (fileHandle, recordDescriptor, data, newRID);
     }
     // record in current page
-    else if (recordEntry.offset >= 0) {
+    else if (recordEntry.offset > 0) {
         unsigned pageFreeSpaceSize = getPageFreeSpaceSize (page);
         unsigned recordSize = getRecordSize (recordDescriptor, data);
 
@@ -537,77 +576,42 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle, const vector<Att
             setRecordAtOffset (page, recordEntry.offset, recordDescriptor, data);
             recordEntry.length = recordSize;
             compactRecords (page, slotHeader, recordEntry, recordEntry.offset);
+            setSlotDirectoryRecordEntry (page, rid.slotNum, recordEntry);
 
             fileHandle.writePage (rid.pageNum, page);
             free (page);
             return SUCCESS;
         }
         // recordSize > recordEntry.length
-        // and slot wasn't previously deleted
-        else if (recordSize > recordEntry.length and recordEntry.length > 0) {
+        else if (recordSize > recordEntry.length) {
             // record fits in the page
+            // delete it from its current position
+            compactRecords (page, slotHeader, recordEntry, recordEntry.offset + recordEntry.length);
             if (recordSize <= pageFreeSpaceSize) {
-                compactRecords (page, slotHeader, recordEntry, recordEntry.offset + recordEntry.length);
                 recordEntry.length = recordSize;
                 recordEntry.offset = slotHeader.freeSpaceOffset - recordSize;
                 setRecordAtOffset (page, recordEntry.offset, recordDescriptor, data);
+
                 slotHeader.freeSpaceOffset = recordEntry.offset;
+                setSlotDirectoryHeader (page, slotHeader);
+                setSlotDirectoryRecordEntry (page, rid.slotNum, recordEntry);
+
                 fileHandle.writePage (rid.pageNum, page);
                 free (page);
                 return SUCCESS;
             }
             // record doesn't fit
             else {
-                // "delete" record from page since it's going to be moved
-                compactRecords (page, slotHeader, recordEntry, recordEntry.offset + recordEntry.length);
-
-                // followed same format from solution insertRecord
-                bool pageFound = false;
-                unsigned targetPageNum;
-                void* targetPage = malloc (PAGE_SIZE);
-                for (targetPageNum = 0; targetPageNum < fileHandle.getNumberOfPages(); ++targetPageNum) {
-                    fileHandle.readPage (targetPageNum, targetPage);
-                    if (getPageFreeSpaceSize (targetPage) >= sizeof(SlotDirectoryRecordEntry) + recordSize) {
-                        pageFound = true;
-                        break;
-                    }
-                }
-
-                if (not pageFound)
-                    newRecordBasedPage(targetPage);
-
-                SlotDirectoryHeader targetPageSlotHeader = getSlotDirectoryHeader (targetPage);
-
-                // forwarding address
-                recordEntry.length = targetPageNum;
-                recordEntry.offset = -1 * targetPageSlotHeader.recordEntriesNumber;
+                RID newRID;
+                insertRecord (fileHandle, recordDescriptor, data, newRID);
+                recordEntry.length = newRID.pageNum;
+                recordEntry.offset = -1 * newRID.slotNum;
                 setSlotDirectoryRecordEntry (page, rid.slotNum, recordEntry);
-
-                SlotDirectoryRecordEntry newRecordEntry;
-                newRecordEntry.length = recordSize;
-                newRecordEntry.offset = targetPageSlotHeader.freeSpaceOffset - recordSize;
-                setSlotDirectoryRecordEntry (targetPage, targetPageSlotHeader.recordEntriesNumber, newRecordEntry);
-
-                targetPageSlotHeader.freeSpaceOffset = newRecordEntry.offset;
-                targetPageSlotHeader.recordEntriesNumber += 1;
-                setSlotDirectoryHeader (targetPage, targetPageSlotHeader);
-
-                setRecordAtOffset (targetPage, newRecordEntry.offset, recordDescriptor, data);
-
-                if (pageFound) {
-                    fileHandle.writePage(targetPageNum, targetPage);
-                }
-                else {
-                    fileHandle.appendPage (targetPage);
-                }
-
                 fileHandle.writePage (rid.pageNum, page);
                 free (page);
                 return SUCCESS;
             }
-
         }
-        // update where slot length equals 0
     }
     // should never reach here
     return -1;
@@ -615,21 +619,28 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle, const vector<Att
 
 RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const RID &rid, const string &attributeName, void *data) {
     void *page = malloc(PAGE_SIZE);
-    if (fileHandle.readPage(rid.pageNum, page))
+    if (fileHandle.readPage(rid.pageNum, page)) {
+        free (page);
         return RBFM_READ_FAILED;
+    }
 
     SlotDirectoryRecordEntry recordEntry = getSlotDirectoryRecordEntry(page, rid.slotNum);
+    SlotDirectoryHeader slotHeader = getSlotDirectoryHeader (page);
+    if (rid.slotNum > slotHeader.recordEntriesNumber) {
+        free (page);
+        return RBFM_SLOT_DN_EXIST;
+    }
 
     // checks the following:
     // 1) record was deleted, exit
     // 2) record was moved, recurse until we find the page the record is on
     // 3) record on current page, continue
 
-    if (recordEntry.length == 0) {
+    if (recordEntry.length == 0 and recordEntry.offset == 0) {
         free (page);
         return RBFM_RECORD_DELETED;
     }
-    else if (recordEntry.offset < 0) {
+    else if (recordEntry.offset <= 0) {
         RID newRID;
         newRID.pageNum = recordEntry.length;
         newRID.slotNum = -1 * recordEntry.offset;
@@ -639,7 +650,6 @@ RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle, const vector<At
     else {
         bool attributeFound = false;
         unsigned i = 0;
-
         for (i = 0; i < recordDescriptor.size(); ++i) {
             if (attributeName == recordDescriptor[i].name) {
                 attributeFound = true;
@@ -647,8 +657,10 @@ RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle, const vector<At
             }
         }
 
-        if (not attributeFound)
+        if (not attributeFound) {
+            free (page);
             return RBFM_ATTR_NOT_FOUND;
+        }
 
         // Grab Attribute count and NullIndicatorLength to offset into the
         // attribute offset directory
@@ -656,6 +668,23 @@ RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle, const vector<At
         memcpy(&len, (char*)page + recordEntry.offset, sizeof(RecordLength));
 
         unsigned nullIndicatorSize = getNullIndicatorSize(len);
+        char nullIndicator[nullIndicatorSize];
+        memset (nullIndicator, 0, nullIndicatorSize);
+        memcpy (nullIndicator, (char*)page + sizeof(RecordLength), nullIndicatorSize);
+
+        // pass in one byte of a new null indicator to data
+        // if field is null, set bit to 1 to indicate null field
+        char toRet_nullIndicator = 0;
+        if (fieldIsNull(nullIndicator, i))
+            toRet_nullIndicator |= (1 << 7);
+        memcpy(data, &toRet_nullIndicator, 1);
+
+        if (fieldIsNull(nullIndicator, i)) {
+            free (page);
+            return SUCCESS;
+        }
+        unsigned dataOffset = 1;
+
 
         unsigned recordHeaderSize = sizeof(RecordLength) + nullIndicatorSize;
 
@@ -677,7 +706,23 @@ RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle, const vector<At
         // go into the offset directory to find the offset where the target attribute ends
         memcpy(&endAttributeOffset, start + recordHeaderSize + (i * sizeof(ColumnOffset)), sizeof(ColumnOffset));
 
-        memcpy(data, start + startAttributeOffset, endAttributeOffset - startAttributeOffset);
+        switch (recordDescriptor[i].type) {
+            case TypeInt:
+                memcpy ((char*)data + dataOffset, start + startAttributeOffset, INT_SIZE);
+                dataOffset += INT_SIZE;
+                break;
+            case TypeReal:
+                memcpy ((char*)data + dataOffset, start + startAttributeOffset, REAL_SIZE);
+                dataOffset += REAL_SIZE;
+                break;
+            case TypeVarChar:
+                uint32_t varCharSize = endAttributeOffset - startAttributeOffset;
+                memcpy ((char*)data + dataOffset, &varCharSize, VARCHAR_LENGTH_SIZE);
+                dataOffset += VARCHAR_LENGTH_SIZE;
+                memcpy((char*)data + dataOffset, start + startAttributeOffset, varCharSize);
+                dataOffset += varCharSize;
+                break;
+        }
 
         free(page);
         return SUCCESS;
@@ -902,4 +947,5 @@ void RecordBasedFileManager::compactRecords(void* page, SlotDirectoryHeader &slo
     }
 
     slotHeader.freeSpaceOffset = compactStartOffset;
+    setSlotDirectoryHeader (page, slotHeader);
 }
