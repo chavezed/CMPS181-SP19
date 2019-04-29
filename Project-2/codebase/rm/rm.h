@@ -1,8 +1,8 @@
-
 #ifndef _rm_h_
 #define _rm_h_
 
 #include <string>
+#include <cstring>
 #include <vector>
 
 #include "../rbf/rbfm.h"
@@ -13,13 +13,17 @@ using namespace std;
 
 // RM_ScanIterator is an iteratr to go through tuples
 class RM_ScanIterator {
+private:
+  RBFM_ScanIterator rbfmsi;
 public:
   RM_ScanIterator() {};
   ~RM_ScanIterator() {};
 
+  RC initialize(FileHandle &fileH, const vector<Attribute> recDes, const string condAtt, const CompOp cOp, const void *v, const vector<string> attNames);
+
   // "data" follows the same format as RelationManager::insertTuple()
-  RC getNextTuple(RID &rid, void *data) { return RM_EOF; };
-  RC close() { return -1; };
+  RC getNextTuple(RID &rid, void *data) { return rbfmsi.getNextRecord(rid, data); };
+  RC close() { return rbfmsi.close(); };
 };
 
 
@@ -71,6 +75,15 @@ private:
   static RelationManager *_rm;
   static RecordBasedFileManager *_rbf_manager;
   static PagedFileManager *_pf_manager;
+
+  void columnsInsert(int table_id, string &name, int type, int length, int position, 
+    FileHandle &tables_file, const vector<Attribute> &column_recordDescriptor);
+  void tablesInsert(string &name, 
+    int id, 
+    const vector<Attribute> &table_recordDescriptor, 
+    const vector<Attribute> &column_recordDescriptor, 
+    FileHandle &tables_file);
+
 };
 
 #endif
