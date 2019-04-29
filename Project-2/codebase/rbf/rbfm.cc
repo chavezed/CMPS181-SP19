@@ -9,6 +9,7 @@ RecordBasedFileManager* RecordBasedFileManager::_rbf_manager = NULL;
 PagedFileManager *RecordBasedFileManager::_pf_manager = NULL;
 
 bool sortByDecreasingOffset (const SlotDirectoryRecordEntry &lhs, const SlotDirectoryRecordEntry &rhs);
+void setBit(char *nullIndicator, int field);
 
 RecordBasedFileManager* RecordBasedFileManager::instance()
 {
@@ -493,7 +494,7 @@ RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle, const vector<Att
 
     // check if the slot entry is the last one in the directory
     // can be deleted since it will not affect slotNum of RIDs
-    if (rid.slotNum == (slotHeader.recordEntriesNumber - 1)) {
+    if (rid.slotNum == (unsigned)(slotHeader.recordEntriesNumber - 1)) {
         slotHeader.recordEntriesNumber -= 1;
         setSlotDirectoryHeader (page, slotHeader);
     }
@@ -737,21 +738,22 @@ RC RecordBasedFileManager::scan(FileHandle &fileHandle,
       const CompOp compOp,                  // comparision type such as "<" and "="
       const void *value,                    // used in the comparison
       const vector<string> &attributeNames, // a list of projected attributes
-      RBFM_ScanIterator &rbfm_ScanIterator) {
+      RBFM_ScanIterator &rbfm_ScanIterator) 
+{
 
-    rbfm_ScanIterator.initailize(fileHandle, recordDescriptor, conditionAttribute, compOp, value, attributeNames);
+    rbfm_ScanIterator.initialize(fileHandle, recordDescriptor, conditionAttribute, compOp, value, attributeNames);
     return SUCCESS;
 }
 
 RC RBFM_ScanIterator::getNextRecord(RID &rid, void *data) { 
-    int max_pages = (int)_pf_manager->getNumberOfPages();
-    if (rid.pageNum < max_pages){
-        return -1;
+    unsigned int max_pages = (int)(fileHandle.getNumberOfPages());
+    if (rid.pageNum > max_pages){
+        return RBFM_EOF;
     }
     void *page = malloc(PAGE_SIZE);
     fileHandle.readPage(rid.pageNum, page);
     SlotDirectoryHeader headerOfPage = getSlotDirectoryHeader(page);
-    int max_record = headerOfPage.recordEntriesNumber;
+    unsigned int max_record = headerOfPage.recordEntriesNumber;
 
     if(rid.pageNum == max_pages && max_record > (rid.slotNum + 1) ){
         free(page);
@@ -765,14 +767,14 @@ RC RBFM_ScanIterator::getNextRecord(RID &rid, void *data) {
     }
 
     //this for loop finds the attributes that we are going to use.
-    vector<tuple<Attribute, int> > att;
-    for(int i = 0; i <= recordDescriptor.size(); i++){
+    vector< tuple<Attribute, int> > att;
+    for(int i = 0; i <= (int)recordDescriptor.size(); i++){
         if(find(attributeNames.begin(), attributeNames.end(), recordDescriptor[i].name) != attributeNames.end()){
             att.push_back(make_tuple(recordDescriptor[i], i)); //need the field number as well as the attribute description.
         }
     }
 
-    if(this->filter(rid) == SUCCESS){//this is a value that we want to use.
+    if(this->filter(rid) == SUCCESS){//checks to see if this is a rid that we want to use.
         void *tempData = malloc(PAGE_SIZE);
         int offset = 0;
         //creating nullIndicator.
@@ -782,9 +784,9 @@ RC RBFM_ScanIterator::getNextRecord(RID &rid, void *data) {
         memset((char*) data, 0, PAGE_SIZE);
         offset = nullIndicatorSize;//putting offset in write possition
         //for loop appends data after the null bits
-        for(int i = 0; i <= att.size(); i++){
+        for(int i = 0; i <= (int)att.size(); i++){
             //get the data
-            _rbf_manager->readAttribute(fileHandle, recordDescriptor, rid, conditionAttribute, tempData);
+            readAttribute(fileHandle, recordDescriptor, rid, conditionAttribute, tempData);
             //check for null
             if((char*)tempData == NULL){
                 setBit((char *)nullIndicator, get<1>(att[i]));
@@ -793,7 +795,7 @@ RC RBFM_ScanIterator::getNextRecord(RID &rid, void *data) {
             //check for varChar.
             if(get<0>(att[i]).type == TypeVarChar){
                 int sizeofChar = 0;
-                memcpy(&sizeofChar, tempData, sizeof(int))
+                memcpy(&sizeofChar, tempData, sizeof(int));
                 memcpy((char *)data + offset, tempData, sizeofChar+sizeof(int) );
                 offset += sizeofChar+sizeof(int);
             }
@@ -803,7 +805,7 @@ RC RBFM_ScanIterator::getNextRecord(RID &rid, void *data) {
             }
         }
         memcpy((char *)data, (char *)nullIndicator, nullIndicatorSize);//puts the null bits at the front.
-        free(nullBits);
+        free(nullIndicator);
         free(tempData);
         free(page);
         return SUCCESS;
@@ -813,37 +815,54 @@ RC RBFM_ScanIterator::getNextRecord(RID &rid, void *data) {
         rid.slotNum += 1;
         return this->getNextRecord(rid, data);//find next possible record.
     } 
+}
+RC RBFM_ScanIterator::close() { 
+    free(value); 
+    return SUCCESS;
 };
-RC RBFM_ScanIterator::close() { return -1; };
 
 
-RC RBFM_ScanIterator::initailize(FileHandle &fileH, vector<Attribute> recDes, string condAtt, CompOp cOp, void *v, vector<string> attNames){
+RC RBFM_ScanIterator::initialize(FileHandle &fileH, 
+    const vector<Attribute> recDes, 
+    const string condAtt, 
+    const CompOp cOp, 
+    const void *v, 
+    const vector<string> attNames)
+{
     fileHandle = fileH;
     recordDescriptor = recDes;
     conditionAttribute = condAtt;
     compOp = cOp;
-    value = v;
     attributeNames = attNames;
+
+    int size = 0;
+    memcpy(&size, (char *)v, VARCHAR_LENGTH_SIZE);
+    size += VARCHAR_LENGTH_SIZE;
+    value = malloc(size);
+    memcpy((char*)value, (char*)v, size);
+
     return SUCCESS;
-};
+}
 
 // helper project 2
 
-RC RBFM_ScanIterator::filter(RID rid){
+RC RBFM_ScanIterator::filter(RID &rid){
     if (compOp == NO_OP){
         return SUCCESS;
     }
     void *data = malloc(PAGE_SIZE);
-    _rbf_manager->readAttribute(fileHandle, recordDescriptor, rid, conditionAttribute, data);
+    readAttribute(fileHandle, recordDescriptor, rid, conditionAttribute, data);
     bool works = false;
+    bool found = false;
     int i;
-    for (i = 0; i <= recordDescriptor.size(); i++){
-        if(recordDescriptor.name == condAtt){
+    for (i = 0; i <= (int)recordDescriptor.size(); i++){
+        if(recordDescriptor[i].name == conditionAttribute){
+            found = true;
             break;
         }
     }
 
-    if (recordDescriptor[i].type == TypeVarChar){
+    if (recordDescriptor[i].type == TypeVarChar && found){
         char *compData = (char *) data;
         if (compOp == EQ_OP) {
             works = (compData == (char *) value);
@@ -865,47 +884,53 @@ RC RBFM_ScanIterator::filter(RID rid){
         }
     }
 
-    else if (recordDescriptor[i].type == TypeInt) {
-        int compData = (int)data;
+    else if (recordDescriptor[i].type == TypeInt && found) {
+        int compData = 0;
+        memcpy(&compData, (char *)data, sizeof(int));
+        int intValue = 0;
+        memcpy(&intValue, (char *)value, sizeof(int));
         if (compOp == EQ_OP) {
-            works = (compData == (int) value);
+            works = (compData == (int) intValue);
         }
         else if (compOp == LT_OP){
-            works = (compData < (int) value);
+            works = (compData < (int) intValue);
         }
         else if (compOp == LE_OP){
-            works = (compData <= (int) value);
+            works = (compData <= (int) intValue);
         }
         else if (compOp == GT_OP){
-            works = (compData > (int) value);
+            works = (compData > (int) intValue);
         }
         else if (compOp == GE_OP){
-            works = (compData >=(int) value);
+            works = (compData >=(int) intValue);
         }
         else if (compOp == NE_OP){
-            works = (compData != (int) value);
+            works = (compData != (int) intValue);
         }
     }
 
-    else {
-        float compData = (float)data;
+    else if (recordDescriptor[i].type == TypeReal && found){
+        float compData = 0;
+        memcpy(&compData, (char *)data, sizeof(float));
+        float floatValue = 0;
+        memcpy(&floatValue, (char *)value, sizeof(float));
         if (compOp == EQ_OP) {
-            works = (compData == (float) value);
+            works = (compData == (float) floatValue);
         }
         else if (compOp == LT_OP){
-            works = (compData < (float) value);
+            works = (compData < (float) floatValue);
         }
         else if (compOp == LE_OP){
-            works = (compData <= (float) value);
+            works = (compData <= (float) floatValue);
         }
         else if (compOp == GT_OP){
-            works = (compData > (float) value);
+            works = (compData > (float) floatValue);
         }
         else if (compOp == GE_OP){
-            works = (compData >=(float) value);
+            works = (compData >=(float) floatValue);
         }
         else if (compOp == NE_OP){
-            works = (compData != (float) value);
+            works = (compData != (float) floatValue);
         }
     }
 

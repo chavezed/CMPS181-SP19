@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include <algorithm>
 #include <climits>
 #include <inttypes.h>
 #include "../rbf/pfm.h"
@@ -69,47 +70,10 @@ typedef struct SlotDirectoryRecordEntry
 } SlotDirectoryRecordEntry;
 
 typedef SlotDirectoryRecordEntry* SlotDirectory;
-
 typedef uint16_t ColumnOffset;
-
 typedef uint16_t RecordLength;
-/********************************************************************************
-The scan iterator is NOT required to be implemented for the part 1 of the project 
-********************************************************************************/
 
-# define RBFM_EOF (-1)  // end of a scan operator
-
-// RBFM_ScanIterator is an iterator to go through records
-// The way to use it is like the following:
-//  RBFM_ScanIterator rbfmScanIterator;
-//  rbfm.open(..., rbfmScanIterator);
-//  while (rbfmScanIterator(rid, data) != RBFM_EOF) {
-//    process the data;
-//  }
-//  rbfmScanIterator.close();
-
-class RBFM_ScanIterator {
-private:
-  /*FileHandle &fileHandle;
-  vector<Attribute> recordDescriptor;
-  string conditionAttribute;
-  CompOp compOp;                  // comparision type such as "<" and "="
-  void *value;                    // used in the comparison
-  vector<string> attributeNames; // a list of projected attributes*/
-public:
-  RBFM_ScanIterator() {};
-  ~RBFM_ScanIterator() {};
-
- // RC initailize(FileHandle &fileH, vector<Attribute> recDes, string condAtt, CompOp cOp, void *v, vector<string> attNames){};
-
-  /*// Never keep the results in the memory. When getNextRecord() is called, 
-  // a satisfying record needs to be fetched from the file.
-  // "data" follows the same format as RecordBasedFileManager::insertRecord().
-  RC getNextRecord(RID &rid, void *data) {};
-  RC filter(RID rid, void* data) {};
-  RC close() { return -1; };*/
-};
-
+class RBFM_ScanIterator;
 
 class RecordBasedFileManager
 {
@@ -174,6 +138,10 @@ protected:
   RecordBasedFileManager();
   ~RecordBasedFileManager();
 
+  int getNullIndicatorSize(int fieldCount);
+  SlotDirectoryHeader getSlotDirectoryHeader(void * page);
+
+
 private:
   static RecordBasedFileManager *_rbf_manager;
   static PagedFileManager *_pf_manager;
@@ -182,7 +150,6 @@ private:
 
   void newRecordBasedPage(void * page);
 
-  SlotDirectoryHeader getSlotDirectoryHeader(void * page);
   void setSlotDirectoryHeader(void * page, SlotDirectoryHeader slotHeader);
 
   SlotDirectoryRecordEntry getSlotDirectoryRecordEntry(void * page, unsigned recordEntryNumber);
@@ -191,7 +158,7 @@ private:
   unsigned getPageFreeSpaceSize(void * page);
   unsigned getRecordSize(const vector<Attribute> &recordDescriptor, const void *data);
 
-  int getNullIndicatorSize(int fieldCount);
+  
   bool fieldIsNull(char *nullIndicator, int i);
 
   void setRecordAtOffset(void *page, unsigned offset, const vector<Attribute> &recordDescriptor, const void *data);
@@ -199,5 +166,51 @@ private:
 
   void compactRecords(void* page, SlotDirectoryHeader &slotHeader, SlotDirectoryRecordEntry &recordEntry, unsigned compactStartOffset);
 };
+
+/********************************************************************************
+The scan iterator is NOT required to be implemented for the part 1 of the project 
+********************************************************************************/
+
+
+# define RBFM_EOF (-1)  // end of a scan operator
+
+// RBFM_ScanIterator is an iterator to go through records
+// The way to use it is like the following:
+//  RBFM_ScanIterator rbfmScanIterator;
+//  rbfm.open(..., rbfmScanIterator);
+//  while (rbfmScanIterator(rid, data) != RBFM_EOF) {
+//    process the data;
+//  }
+//  rbfmScanIterator.close();
+
+class RBFM_ScanIterator : public RecordBasedFileManager 
+{
+private:
+  FileHandle fileHandle;
+  vector<Attribute> recordDescriptor;
+  string conditionAttribute;
+  CompOp compOp;                  // comparision type such as "<" and "="
+  void *value;                    // used in the comparison
+  vector<string> attributeNames; // a list of projected attributes
+public:
+  RBFM_ScanIterator() {};
+  ~RBFM_ScanIterator() {};
+
+  RC initialize(FileHandle &fileH, const vector<Attribute> recDes, const string condAtt, const CompOp cOp, const void *v, const vector<string> attNames);
+
+  // Never keep the results in the memory. When getNextRecord() is called, 
+  // a satisfying record needs to be fetched from the file.
+  // "data" follows the same format as RecordBasedFileManager::insertRecord().
+  RC getNextRecord(RID &rid, void *data);
+  RC close();
+
+private:
+  static RecordBasedFileManager *_rbf_manager;
+  static PagedFileManager *_pf_manager;
+  RC filter(RID &rid);
+
+};
+
+
 
 #endif
