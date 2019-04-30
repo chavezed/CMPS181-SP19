@@ -15,6 +15,9 @@ using namespace std;
 class RM_ScanIterator {
 private:
   RBFM_ScanIterator rbfmsi;
+  // static RelationManager *_rm;
+  static RecordBasedFileManager *_rbf_manager;
+  static PagedFileManager *_pf_manager;
 public:
   RM_ScanIterator() {};
   ~RM_ScanIterator() {};
@@ -66,6 +69,9 @@ public:
       const vector<string> &attributeNames, // a list of projected attributes
       RM_ScanIterator &rm_ScanIterator);
 
+  void table_rd(vector<Attribute> table_recordDescriptor);
+
+  void column_rd(vector<Attribute> column_recordDescriptor);
 
 protected:
   RelationManager();
@@ -80,8 +86,8 @@ private:
     FileHandle &tables_file, const vector<Attribute> &column_recordDescriptor);
   void tablesInsert(string &name, 
     int id, 
-    const vector<Attribute> &table_recordDescriptor, 
-    const vector<Attribute> &column_recordDescriptor, 
+    vector<Attribute> &table_recordDescriptor, 
+    vector<Attribute> &column_recordDescriptor, 
     FileHandle &tables_file);
 
 };
