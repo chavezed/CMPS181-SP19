@@ -133,13 +133,11 @@ IMPORTANT, PLEASE READ: All methods below this comment (other than the construct
       RBFM_ScanIterator &rbfm_ScanIterator);
 
 public:
-
+  int getNullIndicatorSize(int fieldCount);
+  SlotDirectoryHeader getSlotDirectoryHeader(void * page);
 protected:
   RecordBasedFileManager();
   ~RecordBasedFileManager();
-
-  int getNullIndicatorSize(int fieldCount);
-  SlotDirectoryHeader getSlotDirectoryHeader(void * page);
 
 
 private:
