@@ -1,9 +1,9 @@
 
 #include "rm.h"
 
-RelationManager* RelationManager::_rm = 0;
-RecordBasedFileManager* RecordBasedFileManager::_rbf_manager = 0;
-PagedFileManager* RecordBasedFileManager::_pf_manager = 0;
+RelationManager* RelationManager::_rm = NULL;
+RecordBasedFileManager* RelationManager::_rbf_manager = NULL;
+RecordBasedFileManager* RM_ScanIterator::_rbf_manager = NULL;
 
 RelationManager* RelationManager::instance()
 {
@@ -151,8 +151,8 @@ void RelationManager::tablesInsert(string &name,
 
 RC RelationManager::createCatalog()
 {
-  if(_pf_manager->createFile("Tables") != 0 &&
-    _pf_manager->createFile("Columns") != 0 ){
+  if(_rbf_manager->createFile("Tables") != 0 &&
+    _rbf_manager->createFile("Columns") != 0 ){
     return -1;
   }
 
@@ -215,82 +215,119 @@ RC RelationManager::createCatalog()
 
 RC RelationManager::deleteCatalog()
 {
-    if(_pf_manager->destroyFile("Tables") != 0 &&
-     _pf_manager->destroyFile("Columns") != 0 ){
+    if(_rbf_manager->destroyFile("Tables") != 0 &&
+     _rbf_manager->destroyFile("Columns") != 0 ){
         return -1;
     }
     return 0;
 }
 
-RC getNewTableID(int &id){
-  RM_ScanIterator rmsi;
-  return -1;
-}
+// RC getNewTableID(int &id){
+//   RM_ScanIterator rmsi;
+//   return -1;
+// }
 
 RC RelationManager::createTable(const string &tableName, const vector<Attribute> &attrs)
 {
-  if(_pf_manager->createFile(tableName) != 0){
-    return -1;
-  }
-  int id = 0;
-  string t = tableName;
-  vector<Attribute> table_recordDescriptor;
-  Attribute table_attr;
-  //for table
-  table_attr.name = "table-id";
-  table_attr.type = TypeInt;
-  table_attr.length = (AttrLength)4;
-  table_recordDescriptor.push_back(table_attr);
+  // if(_pf_manager->createFile(tableName) != 0){
+  //   return -1;
+  // }
+  // int id = 0;
+  // string t = tableName;
+  // vector<Attribute> table_recordDescriptor;
+  // Attribute table_attr;
+  // //for table
+  // table_attr.name = "table-id";
+  // table_attr.type = TypeInt;
+  // table_attr.length = (AttrLength)4;
+  // table_recordDescriptor.push_back(table_attr);
 
-  table_attr.name = "table-name";
-  table_attr.type = TypeVarChar;
-  table_attr.length = (AttrLength)50;
-  table_recordDescriptor.push_back(table_attr);
+  // table_attr.name = "table-name";
+  // table_attr.type = TypeVarChar;
+  // table_attr.length = (AttrLength)50;
+  // table_recordDescriptor.push_back(table_attr);
 
-  table_attr.name = "file-name";
-  table_attr.type = TypeVarChar;
-  table_attr.length = (AttrLength)50;
-  table_recordDescriptor.push_back(table_attr);
+  // table_attr.name = "file-name";
+  // table_attr.type = TypeVarChar;
+  // table_attr.length = (AttrLength)50;
+  // table_recordDescriptor.push_back(table_attr);
 
-  tablesInsert(t, id, table_recordDescriptor, column_recordDescriptor);
-  return 0;
+  // tablesInsert(t, id, table_recordDescriptor, column_recordDescriptor);
+  // return 0;
+  return -1;
 }
 
 RC RelationManager::deleteTable(const string &tableName)
 {
+  if(tableName == "Table" || tableName == "Columns"){
     return -1;
+  }
+  FileHandle file;
+  RBFM_ScanIterator deletingIter;
+  vector<Attribute> recordDesc;
+  void * data = malloc(4096);
+  RID rid;
+  rid.pageNum = 0;
+  rid.slotNum = 0;
+
+  //Setting up to delete from Tables file
+  vector<string> tableAttributeNames;
+  string att = "table-id";
+  tableAttributeNames.push_back(att);
+  att = "file-name";
+  tableAttributeNames.push_back(att);
+
+  _rbf_manager->openFile("Tables", file);
+  table_rd(recordDesc);
+
+  //converting string to void pointer
+  string conditionAttribute = "table_id";
+  void *name = malloc(100);
+  int size_of_name = tableName.size();
+  memcpy(name, &size_of_name, sizeof(int));
+  memcpy((char *)name + sizeof(int), &tableName, size_of_name);
+
+  //Setting up iterator to find the record in the Tables file
+  _rbf_manager->scan(file, recordDesc, conditionAttribute, EQ_OP, name, tableAttributeNames, deletingIter);
+
+  deletingIter.getNextRecord(rid, data);//Got the record.
+
+  //get the table_id
+  int table_id = 0;
+  int offset = 1; //there is only one null byte for Tables
+  memcpy(&table_id, (char*)data+offset, sizeof(int)); //table_id is the first column
+
+  //Delete record from Tables 
+  _rbf_manager->deleteRecord(file, recordDesc, rid);
+
+  //get ready to delete from Columns
+  rid.pageNum = 0;
+  rid.slotNum = 0;
+  column_rd(recordDesc);
+  _rbf_manager->openFile("Columns", file);
+
+  //setting up iterator to find all the records that match the table_id
+  while(deletingIter.getNextRecord(rid, data) != -1){
+    _rbf_manager->deleteRecord(file, recordDesc, rid);
+  }
+
+  return _rbf_manager->destroyFile(tableName);
 }
 
-RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &attrs)
+RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &recordDesc)
 {
-    return -1;
-}
-
-RC RelationManager::insertTuple(const string &tableName, const void *data, RID &rid)
-{
-    return -1;
-}
-
-RC RelationManager::deleteTuple(const string &tableName, const RID &rid)
-{
-    return -1;
-}
-
-RC RelationManager::updateTuple(const string &tableName, const void *data, const RID &rid)
-{
-    return -1;
-}
-
-RC RelationManager::readTuple(const string &tableName, const RID &rid, void *data)
-{ 
   // initialization of variables, file handles, table and column record desc.
   string t = "Tables";
   string c = "Columns";
-  FileHandle table_file,column_file, file;
+
+  FileHandle table_file, column_file;
+
   _rbf_manager->openFile(t, table_file);
-  _rbf_manager->openFile(c,column_file);
+  _rbf_manager->openFile(c, column_file);
+
   vector<Attribute> table_recordDescriptor;
   vector<Attribute> column_recordDescriptor;
+
   _rm->table_rd(table_recordDescriptor);
   _rm->column_rd(column_recordDescriptor);
 
@@ -305,51 +342,32 @@ RC RelationManager::readTuple(const string &tableName, const RID &rid, void *dat
   att = "file-name";
   tableAttributeNames.push_back(att);
 
-  // create record desc for reading return value for tables
-  vector<Attribute> tablesReturnRD;
-  Attribute attr;
-  attr.name = "table-ID";
-  attr.type = TypeInt;
-  attr.length = 4;
-  tablesReturnRD.push_back(attr);
-  attr.name = "file-name";
-  attr.type = TypeVarChar;
-  attr.length = 50;
-  tablesReturnRD.push_back(attr);
   // create scan iterator and initialize it with correct search terms
-
   RBFM_ScanIterator scanIter;
-  _rbf_manager->scan(table_file,table_recordDescriptor,"table-name", EQ_OP, (void*) tempTableName, tableAttributeNames ,scanIter);
+  _rbf_manager->scan(table_file, table_recordDescriptor,"table-name", EQ_OP, (void*) tempTableName, tableAttributeNames, scanIter);
+  
   // parse data from table, 
   RID tempRid;
   tempRid.slotNum = 0;
   tempRid.pageNum = 0;
-  data = malloc(4080);
+  void *data = malloc(4080);
+  
   // values 
   int tablenum = 0;
   char filename[50];
 
   scanIter.getNextRecord(tempRid, data);
-  int offset = _rbf_manager->getNullIndicatorSize(tablesReturnRD.size());
-  // parse values of return data
-  for(int i = 0; i < tablesReturnRD.size(); i++){
-    switch(tablesReturnRD[i].type){
-      case TypeVarChar:{
-        int len = 0;
-        memcpy(&len, (char*) data+offset, sizeof(int));
-        offset += sizeof(int);
-        memcpy(filename, (char*) data+offset, len);
-        offset += len;
-        break;}
-      case (TypeInt | TypeReal):{
-        memcpy(&tablenum, (char*) data+offset, sizeof(int));
-        offset+= sizeof(int);
-        break;
-      }
-      default:
-        break;
-    } 
-  }
+  int offset = 1; //Tables only has one Null Byte
+
+  //Get the table id number
+  memcpy(&tablenum, (char*) data+offset, sizeof(int));
+  offset+= sizeof(int);
+  //Get the filename
+  int lenOfChar = 0;
+  memcpy(&lenOfChar, (char*) data+offset, sizeof(int));
+  offset += sizeof(int);
+  memcpy(filename, (char*) data+offset, lenOfChar);
+
 
   vector<string> columnAttributeNames;
   //att is string used above for same purpose
@@ -362,48 +380,33 @@ RC RelationManager::readTuple(const string &tableName, const RID &rid, void *dat
   att = "column-position";
   columnAttributeNames.push_back(att);
 
-  // create record descriptor for return values
-  vector<Attribute> columnsReturnRD;
-  attr.name = "column-name";
-  attr.type = TypeVarChar;
-  attr.length = 50;
-  columnsReturnRD.push_back(attr);
-  attr.name = "column-type";
-  attr.type = TypeInt;
-  attr.length = 4;
-  columnsReturnRD.push_back(attr);
-  attr.name = "column-length";
-  attr.type = TypeInt;
-  attr.length = 4;
-  columnsReturnRD.push_back(attr);
-  attr.name = "column-position";
-  attr.type = TypeInt;
-  attr.length = 4;
-  columnsReturnRD.push_back(attr);
   // initialize scan function for column table
   _rbf_manager->scan(column_file,column_recordDescriptor, "table-id", EQ_OP,(void*) &tablenum, columnAttributeNames,scanIter);
   // tempRID and data reused from above
   tempRid.slotNum = 0;
   tempRid.pageNum = 0;
   memset(data,0,4080);//set data to be equal to 0, we have what we want from tables file
-  vector<Attribute> recordDesc;
   recordDesc.resize(4);
   char columnName[50];
   int columnType, columnLength, columnPosition, columnNameLen;
-  // Attribute attr; //reused from before
+  Attribute attr;
   
   while(scanIter.getNextRecord(tempRid, data) != -1){
     offset = 1;
+
     memcpy(&columnNameLen, (char*) data + offset, sizeof(int));
     offset += sizeof(int);
     memcpy(columnName, (char*) data+offset, columnNameLen);
     offset += columnNameLen;
+
     memcpy(&columnType, (char*) data+offset, sizeof(int));
     offset += sizeof(int);
+
     memcpy(&columnLength, (char*) data+offset, sizeof(int));
     offset += sizeof(int);
+
     memcpy(&columnPosition, (char*) data+offset, sizeof(int));
-    // offset += sizeof(int);
+
     // create attribute and insert at correct position.
     string str;
     // strcpy(str, columnName);
@@ -419,26 +422,70 @@ RC RelationManager::readTuple(const string &tableName, const RID &rid, void *dat
     columnNameLen = 0;
     memset(columnName,0, 50);
   }
-  // convert char[50] to string
-  string file_name = string(filename);
-  _rbf_manager->openFile(file_name, file);
+  free(data);
+  return 0;
+}
+
+RC RelationManager::insertTuple(const string &tableName, const void *data, RID &rid)
+{
+  vector<Attribute> recordDesc;
+  FileHandle file;
+
+  getAttributes(tableName, recordDesc); //fill recordDec
+  _rbf_manager->openFile(tableName, file);
+
+  return _rbf_manager->insertRecord(file, recordDesc, data, rid);
+}
+
+RC RelationManager::deleteTuple(const string &tableName, const RID &rid)
+{
+  vector<Attribute> recordDesc;
+  FileHandle file;
+
+  getAttributes(tableName, recordDesc); //fill recordDec
+  _rbf_manager->openFile(tableName, file);
+
+  return _rbf_manager->deleteRecord(file, recordDesc, rid);
+}
+
+RC RelationManager::updateTuple(const string &tableName, const void *data, const RID &rid)
+{
+  vector<Attribute> recordDesc;
+  FileHandle file;
+
+  getAttributes(tableName, recordDesc); //fill recordDec
+  _rbf_manager->openFile(tableName, file);
+
+  return _rbf_manager->updateRecord(file, recordDesc, data, rid);
+}
+
+RC RelationManager::readTuple(const string &tableName, const RID &rid, void *data)
+{ 
+  vector<Attribute> recordDesc;
+  FileHandle file;
+
+  getAttributes(tableName, recordDesc); //fill recordDec
+  _rbf_manager->openFile(tableName, file); 
+
   memset(data, 0,4080);
-  _rbf_manager->readRecord(file, recordDesc, rid, data);
-  
 
-
-
-    return -1;
+  return _rbf_manager->readRecord(file, recordDesc, rid, data);
 }
 
 RC RelationManager::printTuple(const vector<Attribute> &attrs, const void *data)
 {
-  return -1;
+  return _rbf_manager->printRecord(attrs, data);
 }
 
 RC RelationManager::readAttribute(const string &tableName, const RID &rid, const string &attributeName, void *data)
 {
-  return -1;
+  vector<Attribute> recordDesc;
+  FileHandle file;
+
+  getAttributes(tableName, recordDesc); //fill recordDec
+  _rbf_manager->openFile(tableName, file);
+
+  return _rbf_manager->readRecord(file, recordDesc, rid, data);
 }
 
 RC RelationManager::scan(const string &tableName,
@@ -448,86 +495,12 @@ RC RelationManager::scan(const string &tableName,
       const vector<string> &attributeNames,
       RM_ScanIterator &rm_ScanIterator)
 {
-  // open table and column files, and get record descriptors for those files
-  
-  string t = "Tables";
-  string c = "Columns";
-  FileHandle table_file,column_file;
-  _rbf_manager->openFile(t, table_file);
-  _rbf_manager->openFile(c,column_file);
-  vector<Attribute> table_recordDescriptor;
-  vector<Attribute> column_recordDescriptor;
-  _rm->table_rd(table_recordDescriptor);
-  _rm->column_rd(column_recordDescriptor);
-  
-  // from table file get the file number. cond attr is table name 
-  
-  char tempTableName[tableName.size() +1];
-  strcpy(tempTableName, tableName.c_str());
-  
-  // create tableAttributeNames vector for return values
-  vector<string> tableAttributeNames;
-  string att = "table-id";
-  tableAttributeNames.push_back(att);
-  att = "file-name";
-  tableAttributeNames.push_back(att);
-
-  // create scan iterator
-  RBFM_ScanIterator scanIter;
-  _rbf_manager->scan(table_file,table_recordDescriptor,"table-name", EQ_OP, (void*) tempTableName, tableAttributeNames ,scanIter);
-  // parse data from table, 
-  RID rid;
-  rid.slotNum = 0;
-  rid.pageNum = 0;
-  void* data = malloc(4080);
-  // values 
-  int tablenum = 0;
-  char* filename[50];
-
-  // create record desc for tablesReturnRD
-  vector<Attribute> tablesReturnRD;
-  Attribute attr;
-  attr.name = "table-ID";
-  attr.type = TypeInt;
-  attr.length = 4;
-  tablesReturnRD.push_back(attr);
-  attr.name = "file-name";
-  attr.type = TypeVarChar;
-  attr.length = 50;
-  tablesReturnRD.push_back(attr);
-
-  scanIter.getNextRecord(rid, data);
-  int offset = _rbf_manager->getNullIndicatorSize(tablesReturnRD.size());
-  // parse values of return data to 
-  for(int i = 0; i < tablesReturnRD.size(); i++){
-    switch(tablesReturnRD[i].type){
-      case TypeVarChar:{
-        int len = 0;
-        memcpy((char*)len, data+offset, sizeof(int));
-        offset += sizeof(int);
-        memcpy(filename, data+offset, len);
-        offset += len;
-        break;}
-      case (TypeInt | TypeReal):{
-        memcpy((char*)tablenum, data+offset, sizeof(int));
-        offset+= sizeof(int);
-        break;
-      }
-      default:
-        break;
-    } 
-  }
-  
-
-
-  // from columns table get record desc.
-
-  
-
-  rm_ScanIterator.initialize(table_file, , conditionAttribute, compOp, value, attributeNames);
-  
-
-  return -1;
+  FileHandle file;
+  vector<Attribute> recordDesc;
+  getAttributes(tableName, recordDesc);
+  _rbf_manager->openFile(tableName, file);
+  rm_ScanIterator.initialize(file, recordDesc, conditionAttribute, compOp, value, attributeNames);
+  return 0;
 }
 
 RC RM_ScanIterator::initialize(FileHandle &fileH, 
@@ -543,7 +516,3 @@ RC RM_ScanIterator::initialize(FileHandle &fileH,
   rbfmsi = temp_rbfmsi;
   return 0;
 }
-
-
-
-
