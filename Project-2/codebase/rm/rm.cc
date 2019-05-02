@@ -77,12 +77,14 @@ void RelationManager::columnsInsert(int table_id, const string &name, const int 
   FileHandle &tables_file, const vector<Attribute> &column_recordDescriptor)
 {
   void* input = malloc(100);
-  char tempName[name.size() +1];
+  char tempName[name.length() +1];
   strcpy(tempName, name.c_str());
-  memset( input, 0, 100);
+
+  memset(input, 0, 100);
   int nullbytes = 0;
   memcpy((char*) input, &nullbytes, 1);
-  int size_of_name = sizeof(name);
+ 
+  int size_of_name = name.length();
   int offset = 1;// number of null
 
   memcpy((char*) input + offset, &table_id, sizeof(int));
@@ -118,9 +120,11 @@ void RelationManager::tablesInsert(string &name,
 
   int nullbytes = 0;
   memcpy((char*) input, &nullbytes, 1);
-  char tempName[name.size() +1];
+
+  char tempName[name.length() +1];
   strcpy(tempName, name.c_str());
-  int size_of_name = sizeof(name);
+
+  int size_of_name = name.length();
   int offset = 1;// number of null
   //insert table ID
   memcpy((char*) input + offset, &id, sizeof(int));
@@ -190,17 +194,18 @@ RC RelationManager::createCatalog()
   tablesInsert(c, 2, table_recordDescriptor, column_recordDescriptor, tables_file);
   RelationManager::maxTableID = 2;
 
-  // need to close files
-  // can rewrite tables to not pass in fileHandle
+
   return 0;
 }
 
 RC RelationManager::deleteCatalog()
 {
-    if(_rbf_manager->destroyFile("Tables") != 0 &&
-     _rbf_manager->destroyFile("Columns") != 0 ){
-        return -1;
-    }
+    RC rc = _rbf_manager->destroyFile ("Tables");
+    if (rc != 0) return rc;
+
+    rc = _rbf_manager->destroyFile ("Columns");
+    if (rc != 0) return rc;
+
     RelationManager::maxTableID = 0;
     return 0;
 }
@@ -221,6 +226,7 @@ RC RelationManager::createTable(const string &tableName, const vector<Attribute>
   FileHandle fileHandle;
 
   tablesInsert(t, id, table_recordDescriptor, attrs, fileHandle);
+
   return 0;
 }
 
