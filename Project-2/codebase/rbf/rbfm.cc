@@ -768,7 +768,7 @@ RC RBFM_ScanIterator::getNextRecord(RID &rid, void *data) {
 
     //this for loop finds the attributes that we are going to use.
     vector< tuple<Attribute, int> > att;
-    for(int i = 0; i <= (int)recordDescriptor.size(); i++){
+    for(int i = 0; i < (int)recordDescriptor.size(); i++){
         if(find(attributeNames.begin(), attributeNames.end(), recordDescriptor[i].name) != attributeNames.end()){
             att.push_back(make_tuple(recordDescriptor[i], i)); //need the field number as well as the attribute description.
         }
@@ -784,7 +784,7 @@ RC RBFM_ScanIterator::getNextRecord(RID &rid, void *data) {
         memset((char*) data, 0, PAGE_SIZE);
         offset = nullIndicatorSize;//putting offset in write possition
         //for loop appends data after the null bits
-        for(int i = 0; i <= (int)att.size(); i++){
+        for(int i = 0; i < (int)att.size(); i++){
             //get the data
             readAttribute(fileHandle, recordDescriptor, rid, conditionAttribute, tempData);
             //check for null
@@ -855,7 +855,7 @@ RC RBFM_ScanIterator::filter(RID &rid){
     bool works = false;
     bool found = false;
     int i;
-    for (i = 0; i <= (int)recordDescriptor.size(); i++){
+    for (i = 0; i < (int)recordDescriptor.size(); i++){
         if(recordDescriptor[i].name == conditionAttribute){
             found = true;
             break;
