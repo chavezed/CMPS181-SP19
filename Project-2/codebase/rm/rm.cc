@@ -120,7 +120,7 @@ void RelationManager::tablesInsert(string &name,
   int nullbytes = 0;
   memcpy((char*) input, &nullbytes, 1);
 
-  char tempName[(name.length()) +1];
+  char tempName[name.length() +1];
   strcpy(tempName, name.c_str());
 
   int size_of_name = name.length();
@@ -153,12 +153,13 @@ void RelationManager::tablesInsert(string &name,
   _rbf_manager->openFile ("Columns", fileHandle);
   vector<Attribute> column_recordDescriptor;
   column_rd(column_recordDescriptor);
-  for (int i = 1; i < (int)recordDescriptor.size(); i++){
+
+  for (int i = 0; i < (int)(recordDescriptor.size() - 1) ; i++){
     columnsInsert(id, 
       recordDescriptor[i].name, 
       recordDescriptor[i].type, 
       recordDescriptor[i].length, 
-      i, 
+      i + 1, 
       fileHandle,
       column_recordDescriptor);
   }
@@ -308,6 +309,12 @@ RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &re
   char tempTableName[tableName.size() +1];
   strcpy(tempTableName, tableName.c_str());
 
+  int size_of_name = tableName.size() + 1;
+  void * tempVoidName = malloc(size_of_name + sizeof(int));
+  memset(tempVoidName, 0, size_of_name + sizeof(int));
+  memcpy((char *)tempVoidName, &size_of_name, sizeof(int));
+  memcpy((char *)tempVoidName + sizeof(int), tempTableName, size_of_name);
+
   // create return attributes array
   vector<string> tableAttributeNames;
   string att = "table-id";
@@ -317,7 +324,7 @@ RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &re
 
   // create scan iterator and initialize it with correct search terms
   RBFM_ScanIterator scanIter;
-  _rbf_manager->scan(table_file, table_recordDescriptor,"table-name", EQ_OP, (void*) tempTableName, tableAttributeNames, scanIter);
+  _rbf_manager->scan(table_file, table_recordDescriptor,"table-name", EQ_OP, tempVoidName, tableAttributeNames, scanIter);
   
   // parse data from table, 
   RID tempRid;
