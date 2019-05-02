@@ -68,9 +68,9 @@ public:
       const vector<string> &attributeNames, // a list of projected attributes
       RM_ScanIterator &rm_ScanIterator);
 
-  void table_rd(vector<Attribute> table_recordDescriptor);
+  void table_rd(vector<Attribute> &table_recordDescriptor);
 
-  void column_rd(vector<Attribute> column_recordDescriptor);
+  void column_rd(vector<Attribute> &column_recordDescriptor);
 
 protected:
   RelationManager();

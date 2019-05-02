@@ -22,7 +22,7 @@ RelationManager::~RelationManager()
 {
 }
 
-void RelationManager::table_rd(vector<Attribute> table_recordDescriptor){
+void RelationManager::table_rd(vector<Attribute> &table_recordDescriptor){
   Attribute attr;
   
   attr.name = "table-id";
@@ -41,7 +41,7 @@ void RelationManager::table_rd(vector<Attribute> table_recordDescriptor){
   table_recordDescriptor.push_back(attr);
 }
 
-void RelationManager::column_rd(vector<Attribute> column_recordDescriptor){
+void RelationManager::column_rd(vector<Attribute> &column_recordDescriptor){
   Attribute attr;
   //For column
   attr.name = "table-id";
@@ -326,14 +326,14 @@ RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &re
   void *data = malloc(4080);
   
   // values 
-  int tablenum = 0;
+  void * tablenum = malloc(sizeof(int));
   char filename[50];
 
   scanIter.getNextRecord(tempRid, data);
   int offset = 1; //Tables only has one Null Byte
 
   //Get the table id number
-  memcpy(&tablenum, (char*) data+offset, sizeof(int));
+  memcpy((char *)tablenum, (char*) data+offset, sizeof(int));
   offset+= sizeof(int);
   //Get the filename
   int lenOfChar = 0;
@@ -354,7 +354,7 @@ RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &re
   columnAttributeNames.push_back(att);
 
   // initialize scan function for column table
-  _rbf_manager->scan(column_file,column_recordDescriptor, "table-id", EQ_OP,(void*) &tablenum, columnAttributeNames,scanIter);
+  _rbf_manager->scan(column_file, column_recordDescriptor, "table-id", EQ_OP, tablenum, columnAttributeNames, scanIter);
   // tempRID and data reused from above
   tempRid.slotNum = 0;
   tempRid.pageNum = 0;
