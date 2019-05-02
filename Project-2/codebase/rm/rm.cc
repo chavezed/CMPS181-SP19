@@ -120,7 +120,7 @@ void RelationManager::tablesInsert(string &name,
   int nullbytes = 0;
   memcpy((char*) input, &nullbytes, 1);
 
-  char tempName[name.length() +1];
+  char tempName[(name.length()) +1];
   strcpy(tempName, name.c_str());
 
   int size_of_name = name.length();
@@ -153,12 +153,12 @@ void RelationManager::tablesInsert(string &name,
   _rbf_manager->openFile ("Columns", fileHandle);
   vector<Attribute> column_recordDescriptor;
   column_rd(column_recordDescriptor);
-  for (int i = 0; i < (int)column_recordDescriptor.size(); i++){
+  for (int i = 1; i < (int)recordDescriptor.size(); i++){
     columnsInsert(id, 
       recordDescriptor[i].name, 
       recordDescriptor[i].type, 
       recordDescriptor[i].length, 
-      i + 1, 
+      i, 
       fileHandle,
       column_recordDescriptor);
   }
