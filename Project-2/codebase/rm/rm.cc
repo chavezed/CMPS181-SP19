@@ -1,4 +1,3 @@
-
 #include "rm.h"
 
 RelationManager* RelationManager::_rm = NULL;
@@ -76,11 +75,11 @@ void RelationManager::column_rd(vector<Attribute> column_recordDescriptor){
 void RelationManager::columnsInsert(int table_id, const string &name, const int type, const int length, int position, 
   FileHandle &tables_file, const vector<Attribute> &column_recordDescriptor)
 {
-  void* input = malloc(100);
+  void* input = malloc(4096);
   char tempName[name.length() +1];
   strcpy(tempName, name.c_str());
 
-  memset(input, 0, 100);
+  memset(input, 0, 4096);
   int nullbytes = 0;
   memcpy((char*) input, &nullbytes, 1);
  
