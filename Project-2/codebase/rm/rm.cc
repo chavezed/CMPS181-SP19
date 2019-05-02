@@ -107,8 +107,8 @@ void RelationManager::columnsInsert(int table_id, const string &name, const int 
 
 void RelationManager::tablesInsert(string &name, 
   int id, 
-  const vector<Attribute> &table_recordDescriptor, 
-  const vector<Attribute> &column_recordDescriptor, 
+  const vector<Attribute> &table_recordDescriptor, //record descriptor for table file 
+  const vector<Attribute> &recordDescriptor, //record descriptor for new table
   FileHandle &tables_file)
 {
 
@@ -151,12 +151,13 @@ void RelationManager::tablesInsert(string &name,
   FileHandle fileHandle;
 
   _rbf_manager->openFile ("Columns", fileHandle);
-
+  vector<Attribute> column_recordDescriptor;
+  column_rd(column_recordDescriptor);
   for (int i = 0; i < (int)column_recordDescriptor.size(); i++){
     columnsInsert(id, 
-      column_recordDescriptor[i].name, 
-      column_recordDescriptor[i].type, 
-      column_recordDescriptor[i].length, 
+      recordDescriptor[i].name, 
+      recordDescriptor[i].type, 
+      recordDescriptor[i].length, 
       i + 1, 
       fileHandle,
       column_recordDescriptor);
@@ -189,7 +190,7 @@ RC RelationManager::createCatalog()
   string c = "Columns";
 
 
-  tablesInsert(t, 1, table_recordDescriptor, column_recordDescriptor, tables_file);
+  tablesInsert(t, 1, table_recordDescriptor, table_recordDescriptor, tables_file);
   tablesInsert(c, 2, table_recordDescriptor, column_recordDescriptor, tables_file);
   RelationManager::maxTableID = 2;
 
