@@ -5,6 +5,8 @@ RelationManager* RelationManager::_rm = NULL;
 RecordBasedFileManager* RelationManager::_rbf_manager = NULL;
 RecordBasedFileManager* RM_ScanIterator::_rbf_manager = NULL;
 
+int RelationManager::maxTableID = 0;
+
 RelationManager* RelationManager::instance()
 {
     if(!_rm)
@@ -71,7 +73,7 @@ void RelationManager::column_rd(vector<Attribute> column_recordDescriptor){
   return;
 }
 
-void RelationManager::columnsInsert(int table_id, string &name, int type, int length, int position, 
+void RelationManager::columnsInsert(int table_id, const string &name, const int type, const int length, int position, 
   FileHandle &tables_file, const vector<Attribute> &column_recordDescriptor)
 {
   void* input = malloc(100);
@@ -88,7 +90,7 @@ void RelationManager::columnsInsert(int table_id, string &name, int type, int le
   memcpy((char*) input + offset, &size_of_name, sizeof(int));
   offset += sizeof(int);
   memcpy((char*) input + offset, (char*)tempName, size_of_name);
-  offset += sizeof(tempName);
+  offset += size_of_name;
   memcpy((char*) input + offset, &type, sizeof(int));
   offset += sizeof(int);
   memcpy((char*) input + offset, &length, sizeof(int));
@@ -96,18 +98,21 @@ void RelationManager::columnsInsert(int table_id, string &name, int type, int le
   memcpy((char*) input + offset, &position, sizeof(int));
   offset += sizeof(int);
 
-  RID temp;
+  RID rid;
 
-  _rbf_manager->insertRecord(tables_file, column_recordDescriptor, input, temp);
+  _rbf_manager->insertRecord(tables_file, column_recordDescriptor, input, rid);
   free(input);
 }
 
 void RelationManager::tablesInsert(string &name, 
   int id, 
-  vector<Attribute> &table_recordDescriptor, 
-  vector<Attribute> &column_recordDescriptor, 
+  const vector<Attribute> &table_recordDescriptor, 
+  const vector<Attribute> &column_recordDescriptor, 
   FileHandle &tables_file)
 {
+
+  _rbf_manager->openFile ("Tables", tables_file);
+
   void* input = malloc(119);
   memset(input, 0, 119);
 
@@ -125,91 +130,68 @@ void RelationManager::tablesInsert(string &name,
   offset += sizeof(int);
   //insert name of table
   memcpy((char*) input + offset, tempName, size_of_name);
-  offset += sizeof(tempName);
+  offset += size_of_name;
   //insert size of file name
   memcpy((char*) input + offset, &size_of_name, sizeof(int));
   offset += sizeof(int);
   //insert name of file
   memcpy((char*) input + offset, tempName, size_of_name);
-  offset += sizeof(tempName);
+  offset += size_of_name;
 
-  RID temp;
+  RID rid;
 
-  _rbf_manager->insertRecord(tables_file, table_recordDescriptor, input, temp);
+  _rbf_manager->insertRecord(tables_file, table_recordDescriptor, input, rid);
   free(input);
+
+  _rbf_manager->closeFile (tables_file);
+
+  FileHandle fileHandle;
+
+  _rbf_manager->openFile ("Columns", fileHandle);
 
   for (int i = 0; i < (int)column_recordDescriptor.size(); i++){
     columnsInsert(id, 
       column_recordDescriptor[i].name, 
       column_recordDescriptor[i].type, 
       column_recordDescriptor[i].length, 
-      i, 
-      tables_file,
+      i + 1, 
+      fileHandle,
       column_recordDescriptor);
   }
+  _rbf_manager->closeFile (fileHandle);
 }
 
 RC RelationManager::createCatalog()
 {
-  if(_rbf_manager->createFile("Tables") != 0 &&
+  /*if(_rbf_manager->createFile("Tables") != 0 &&
     _rbf_manager->createFile("Columns") != 0 ){
     return -1;
-  }
+  }*/
 
-  FileHandle tables_file, columns_file;
-  _rbf_manager->openFile("Tables", tables_file);
-  _rbf_manager->openFile("Columns", columns_file);
+  RC rc = _rbf_manager->createFile("Tables");
+  if (rc != 0) return rc;
+
+  rc = _rbf_manager->createFile("Columns");
+  if (rc != 0) return rc;
+
+  FileHandle tables_file;
+
   vector<Attribute> table_recordDescriptor;
   vector<Attribute> column_recordDescriptor;
-  Attribute attr;
 
-  //For column
-  attr.name = "table-id";
-  attr.type = TypeInt;
-  attr.length = (AttrLength)4;
-  column_recordDescriptor.push_back(attr);
-
-  attr.name = "column-name";
-  attr.type = TypeVarChar;
-  attr.length = (AttrLength)50;
-  column_recordDescriptor.push_back(attr);
-
-  attr.name = "column-type";
-  attr.type = TypeInt;
-  attr.length = (AttrLength)4;
-  column_recordDescriptor.push_back(attr);
-
-  attr.name = "column-length";
-  attr.type = TypeInt;
-  attr.length = (AttrLength)4;
-  column_recordDescriptor.push_back(attr);
-
-  attr.name = "column-position";
-  attr.type = TypeInt;
-  attr.length = (AttrLength)4;
-  column_recordDescriptor.push_back(attr);
-
-  //for table
-  attr.name = "table-id";
-  attr.type = TypeInt;
-  attr.length = (AttrLength)4;
-  table_recordDescriptor.push_back(attr);
-
-  attr.name = "table-name";
-  attr.type = TypeVarChar;
-  attr.length = (AttrLength)50;
-  table_recordDescriptor.push_back(attr);
-
-  attr.name = "file-name";
-  attr.type = TypeVarChar;
-  attr.length = (AttrLength)50;
-  table_recordDescriptor.push_back(attr);
+  table_rd (table_recordDescriptor);
+  column_rd (column_recordDescriptor);
   
   string t = "Tables";
   string c = "Columns";
 
+
   tablesInsert(t, 1, table_recordDescriptor, column_recordDescriptor, tables_file);
   tablesInsert(c, 2, table_recordDescriptor, column_recordDescriptor, tables_file);
+  RelationManager::maxTableID = 2;
+
+  // need to close files
+  // can rewrite tables to not pass in fileHandle
   return 0;
 }
 
@@ -219,42 +201,27 @@ RC RelationManager::deleteCatalog()
      _rbf_manager->destroyFile("Columns") != 0 ){
         return -1;
     }
+    RelationManager::maxTableID = 0;
     return 0;
 }
 
-// RC getNewTableID(int &id){
-//   RM_ScanIterator rmsi;
-//   return -1;
-// }
-
 RC RelationManager::createTable(const string &tableName, const vector<Attribute> &attrs)
 {
-  // if(_pf_manager->createFile(tableName) != 0){
-  //   return -1;
-  // }
-  // int id = 0;
-  // string t = tableName;
-  // vector<Attribute> table_recordDescriptor;
-  // Attribute table_attr;
-  // //for table
-  // table_attr.name = "table-id";
-  // table_attr.type = TypeInt;
-  // table_attr.length = (AttrLength)4;
-  // table_recordDescriptor.push_back(table_attr);
+  if(_rbf_manager->createFile(tableName) != 0){
+    return -1;
+  }
 
-  // table_attr.name = "table-name";
-  // table_attr.type = TypeVarChar;
-  // table_attr.length = (AttrLength)50;
-  // table_recordDescriptor.push_back(table_attr);
+  RelationManager::maxTableID += 1;
+  int id = RelationManager::maxTableID;
+  string t = tableName;
+  vector<Attribute> table_recordDescriptor;
+  
+  table_rd (table_recordDescriptor);
 
-  // table_attr.name = "file-name";
-  // table_attr.type = TypeVarChar;
-  // table_attr.length = (AttrLength)50;
-  // table_recordDescriptor.push_back(table_attr);
+  FileHandle fileHandle;
 
-  // tablesInsert(t, id, table_recordDescriptor, column_recordDescriptor);
-  // return 0;
-  return -1;
+  tablesInsert(t, id, table_recordDescriptor, attrs, fileHandle);
+  return 0;
 }
 
 RC RelationManager::deleteTable(const string &tableName)
@@ -328,8 +295,8 @@ RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &re
   vector<Attribute> table_recordDescriptor;
   vector<Attribute> column_recordDescriptor;
 
-  _rm->table_rd(table_recordDescriptor);
-  _rm->column_rd(column_recordDescriptor);
+  table_rd(table_recordDescriptor);
+  column_rd(column_recordDescriptor);
 
   // create char* table name
   char tempTableName[tableName.size() +1];
@@ -485,7 +452,8 @@ RC RelationManager::readAttribute(const string &tableName, const RID &rid, const
   getAttributes(tableName, recordDesc); //fill recordDec
   _rbf_manager->openFile(tableName, file);
 
-  return _rbf_manager->readRecord(file, recordDesc, rid, data);
+  //return _rbf_manager->readRecord(file, recordDesc, rid, data);
+  return _rbf_manager->readAttribute (file, recordDesc, rid, attributeName, data);
 }
 
 RC RelationManager::scan(const string &tableName,

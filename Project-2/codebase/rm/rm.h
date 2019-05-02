@@ -16,6 +16,7 @@ class RM_ScanIterator {
 private:
   RBFM_ScanIterator rbfmsi;
   static RecordBasedFileManager *_rbf_manager;
+  friend class RelationManager;
 public:
   RM_ScanIterator() {};
   ~RM_ScanIterator() {};
@@ -78,13 +79,14 @@ protected:
 private:
   static RelationManager *_rm;
   static RecordBasedFileManager *_rbf_manager;
+  static int maxTableID;
 
-  void columnsInsert(int table_id, string &name, int type, int length, int position, 
+  void columnsInsert(int table_id, const string &name, const int type, const int length, int position, 
     FileHandle &tables_file, const vector<Attribute> &column_recordDescriptor);
   void tablesInsert(string &name, 
     int id, 
-    vector<Attribute> &table_recordDescriptor, 
-    vector<Attribute> &column_recordDescriptor, 
+    const vector<Attribute> &table_recordDescriptor, 
+    const vector<Attribute> &column_recordDescriptor, 
     FileHandle &tables_file);
 
 };
