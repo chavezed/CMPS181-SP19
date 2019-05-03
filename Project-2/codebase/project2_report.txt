@@ -1,37 +1,91 @@
 1. Basic information
-Team Number : 
-Student ID# of Submitter:
-Name of Submitter: 
+Team Number : 4
+Student ID# of Submitter: 1487504
+Name of Submitter: Keenan Yamasaki
 ID#s and Names for others on the Team
+Kevin Schumacher
+Eduardo Chavez
 
 
 2. Metadata
 - Show your metadata design (Tables and Columns table) and information about each column.
-
+    we should be using the default metadata given in the 
+    project details.
+    Tables
+    (1, "Tables", "Tables")
+    (2, "Columns", "Columns")
+    (3, "Employee", "Employee")
+    Columns
+    (1, "table-id", TypeInt, 4 , 1)
+    (1, "table-name", TypeVarChar, 50, 2)
+    (1, "file-name", TypeVarChar, 50, 3)
+    (2, "table-id", TypeInt, 4, 1)
+    (2, "column-name", TypeVarChar, 50, 2)
+    (2, "column-type", TypeInt, 4, 3)
+    (2, "column-length", TypeInt, 4, 4)
+    (2, "column-position", TypeInt, 4, 5)
 
 3. Internal Record Format
 - Show your record format design and describe how your design satisfies O(1) field access. If not, just mention that your team hasn't implemented this feature.
+    the internal format of the record is formatted with the number of fields, then the nullbits,
+    then a pointer to the end of the desired field. since we know how many fields there are, we know
+    where the nullbits end, where the field pointer is located, and use these two aspects to find where
+    the field is in the record. 
 - Describe how you store a VarChar field.
+    VarChar is stored with an int which holds the length n, followed by a string of bytes
+    of length n. 
 - Describe how you deal with an update and delete.
+    update-if the record is the same size, we overwrite. if the record is smaller, or larger but can still
+    fit, we delete it and insert it back at the end, after compacting the rest of the record. if the record 
+    is too large, we delete it from its current position, and move it to a page with more space.
+    delete- we remove it from the slot directory, and set the length and offset of the record to 0;
+
+
+
 
 
 4. Page Format
 - Show your page format design.
-- Describe how you deal with an update and delete.
+    starts with slot directory header, then a leftwards growing 
+    array of length and offsets. then comes free space, then full space
+    filling from the back.
 
+- Describe how you deal with an update and delete.
+    We check for whether the record was deleted already,
+    or if the slot does not exist. if either of these occurs, we
+    a corresponding value. if the record was moved, then we call 
+    update record on the new location for the record. otherwise, 
+    we update in place. if the record is equivalent in size, we 
+    overwrite the record. if the record is smaller, we compact the 
+    record. if the record is larger, we either remove the record,
+    compact the page, then append the record if the page is large 
+    enough, or we move to a page with free space and append the 
+    record.
+    
+    for delete, we check to see whether the record length == 0
+    and offset == 0, to see if it has been deleted. If not, we 
+    check the slot entry to see if it is the last one on the
+    directory i.e. the one with the highest number, if we 
+    remove this one it does not affect other slots. if it is not
+    the last entry into the record, we compact the records, changing
+    their RID to reflect their new location in the page using 
+    compactRecords();
 
 5. File Format
 - Show your file format design.
-
+    our file is filled with pages, one after another. at the end of one 4KB block 
+    we start the next 4 KB block. This allows our page numbers to just be multiplied
+    by 4096 to get start of the correct page.
 
 
 6. Implementation Detail
 - Other implementation details goes here.  For example:  
 - Describe your use of Forwarding Addresses, including what happens when a Forwarding Address needs to be forwarded to yet another page.
 - Describe how a scan is done, touching each record once even when there are Forwarding Addresses.
+    scan does not deal with forwarding, read record takes care of redirection.
 - Describe how you determine that a previously slot on a page is empty (after record is deleted), so that the slot can be re-used for another record.  (Yes, a record's rid is supposed to be permanent, but only while the record exists.)
-
+    check for 0 and 0 in lenght and offset.
 
 7. Other (optional)
 - Freely use this section to tell us about things that are related to the project 2, but not related to the other sections, such as design and implementation information for Advanced Features, if you've implemented them (optional).
-
+    working up until deadline.
