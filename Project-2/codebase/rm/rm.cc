@@ -219,6 +219,7 @@ RC RelationManager::createTable(const string &tableName, const vector<Attribute>
 
   RelationManager::maxTableID += 1;
   int id = RelationManager::maxTableID;
+
   string t = tableName;
   vector<Attribute> table_recordDescriptor;
   
@@ -324,7 +325,7 @@ RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &re
 
   // create scan iterator and initialize it with correct search terms
   RBFM_ScanIterator scanIter;
-  _rbf_manager->scan(table_file, table_recordDescriptor,"table-name", EQ_OP, tempVoidName, tableAttributeNames, scanIter);
+  _rbf_manager->scan(table_file, table_recordDescriptor, "table-name", EQ_OP, tempVoidName, tableAttributeNames, scanIter);
   
   // parse data from table, 
   RID tempRid;
@@ -338,6 +339,25 @@ RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &re
 
   scanIter.getNextRecord(tempRid, data);
   int offset = 1; //Tables only has one Null Byte
+
+  //testing only
+
+  Attribute testing;
+  vector<Attribute> testing_recordDescriptor;
+
+  testing.name = "table-id";
+  testing.type = TypeInt;
+  testing.length = (AttrLength)4;
+  testing_recordDescriptor.push_back(testing);
+
+  testing.name = "file-name";
+  testing.type = TypeVarChar;
+  testing.length = (AttrLength)50;
+  testing_recordDescriptor.push_back(testing);
+  cout << endl << "testing: " << endl;
+  _rbf_manager->printRecord(testing_recordDescriptor, data);
+  
+  //testing only
 
   //Get the table id number
   memcpy((char *)tablenum, (char*) data+offset, sizeof(int));
