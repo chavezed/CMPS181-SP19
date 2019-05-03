@@ -619,29 +619,52 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle, const vector<Att
 }
 
 RC RecordBasedFileManager::readAttribute (FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const RID &rid, const string &attributeName, void *data) {
+    void *record = malloc (PAGE_SIZE);
 
-  void *record = malloc (PAGE_SIZE);
-  RC rc = readRecord(fileHandle, recordDescriptor, rid, record);
-  if (rc != SUCCESS) return -1;
-
-  int i;
-  bool found = false;
-  for (i = 0; i < recordDescriptor.size(); i++) {
-    if (recordDescriptor[i].name == attributeName) {
-      found = true;
-      break;
+    if (fileHandle.readPage(rid.pageNum, record) != SUCCESS) {
+        free (record);
+        return RBFM_READ_FAILED;
     }
-  }
+
+    SlotDirectoryRecordEntry recordEntry = getSlotDirectoryRecordEntry(record, rid.slotNum);
+    SlotDirectoryHeader slotHeader = getSlotDirectoryHeader (record);
+    if (rid.slotNum > slotHeader.recordEntriesNumber) {
+        free (record);
+        return RBFM_SLOT_DN_EXIST;
+    }
+
+    if (recordEntry.length == 0 and recordEntry.offset == 0) {
+        free (record);
+        return RBFM_RECORD_DELETED;
+    }
+    else if (recordEntry.offset <= 0) {
+        RID newRID;
+        newRID.pageNum = recordEntry.length;
+        newRID.slotNum = -1 * recordEntry.offset;
+        free (record);
+        return readAttribute (fileHandle, recordDescriptor, newRID, attributeName, data);
+    }
+    else {
+        int i;
+        bool found = false;
+        for (i = 0; i < recordDescriptor.size(); i++) {
+            if (recordDescriptor[i].name == attributeName) {
+              found = true;
+              break;
+             }
+        }
+
+    char* start = (char*)record + recordEntry.offset;
 
   // solution uses 2 byte unsigned int to store number of records at start of record
   // recordCount | nullIndicator | fieldOffset Directory | set of fields
   RecordLength len = 0;
-  memcpy (&len, (char*)record, sizeof(RecordLength));
+  memcpy (&len, start, sizeof(RecordLength));
 
   unsigned nullIndicatorSize = getNullIndicatorSize(len);
   char nullIndicator[nullIndicatorSize];
   memset (nullIndicator, 0, nullIndicatorSize);
-  memcpy (nullIndicator, (char*)record + sizeof(RecordLength), nullIndicatorSize);
+  memcpy (nullIndicator, start + sizeof(RecordLength), nullIndicatorSize);
 
 
   // sets the null byte to be returned in data
@@ -663,8 +686,6 @@ RC RecordBasedFileManager::readAttribute (FileHandle &fileHandle, const vector<A
   ColumnOffset startAttributeOffset = 0;
   ColumnOffset endAttributeOffset = 0;
 
-  char* start = (char*)record;
-
   // If the first field is the target, must point offset past
   // Attribute Count, NullIndicatorLength and AttributeOffsetDirectory
   if (i == 0) {
@@ -673,32 +694,34 @@ RC RecordBasedFileManager::readAttribute (FileHandle &fileHandle, const vector<A
   else {
       // go into the offset directory before the target to find where the attribute starts
       memcpy(&startAttributeOffset, start + recordHeaderSize + ((i - 1) * sizeof(ColumnOffset)), sizeof(ColumnOffset));
-  }
+    }
 
-  // go into the offset directory to find the offset where the target attribute ends
-  memcpy(&endAttributeOffset, start + recordHeaderSize + (i * sizeof(ColumnOffset)), sizeof(ColumnOffset));
+    // go into the offset directory to find the offset where the target attribute ends
+    memcpy(&endAttributeOffset, start + recordHeaderSize + (i * sizeof(ColumnOffset)), sizeof(ColumnOffset));
 
-  switch (recordDescriptor[i].type) {
-      case TypeInt:
-          memcpy ((char*)data + dataOffset, start + startAttributeOffset, INT_SIZE);
-          dataOffset += INT_SIZE;
-          break;
-      case TypeReal:
-          memcpy ((char*)data + dataOffset, start + startAttributeOffset, REAL_SIZE);
-          dataOffset += REAL_SIZE;
-          break;
-      case TypeVarChar:
-          uint32_t varCharSize = endAttributeOffset - startAttributeOffset;
-          memcpy ((char*)data + dataOffset, &varCharSize, VARCHAR_LENGTH_SIZE);
-          dataOffset += VARCHAR_LENGTH_SIZE;
-          memcpy((char*)data + dataOffset, start + startAttributeOffset, varCharSize);
-          dataOffset += varCharSize;
-          break;
-  }
+    switch (recordDescriptor[i].type) {
+    case TypeInt:
+      memcpy ((char*)data + dataOffset, start + startAttributeOffset, INT_SIZE);
+      dataOffset += INT_SIZE;
+      break;
+    case TypeReal:
+      memcpy ((char*)data + dataOffset, start + startAttributeOffset, REAL_SIZE);
+      dataOffset += REAL_SIZE;
+      break;
+    case TypeVarChar:
+      uint32_t varCharSize = endAttributeOffset - startAttributeOffset;
+      memcpy ((char*)data + dataOffset, &varCharSize, VARCHAR_LENGTH_SIZE);
+      dataOffset += VARCHAR_LENGTH_SIZE;
+      memcpy((char*)data + dataOffset, start + startAttributeOffset, varCharSize);
+      dataOffset += varCharSize;
+      break;
+    }
 
-  free(record);
-  return SUCCESS;
+    free(record);
+    return SUCCESS;
 
+    }
+    return -1;
 }
 
 RC RecordBasedFileManager::scan(FileHandle &fileHandle,
