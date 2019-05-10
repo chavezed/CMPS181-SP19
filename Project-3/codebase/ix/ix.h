@@ -3,10 +3,15 @@
 
 #include <vector>
 #include <string>
+#include <cstring>
 
 #include "../rbf/rbfm.h"
 
 # define IX_EOF (-1)  // end of the index scan
+# define ROOT_CHAR 'r'
+# define LEAF_CHAR 'l'
+# define INTERNAL_CHAR 'i'
+# define EMPTY_CHAR 'e'
 
 class IX_ScanIterator;
 class IXFileHandle;
@@ -52,6 +57,7 @@ class IndexManager {
 
     private:
         static IndexManager *_index_manager;
+        static PagedFileManager *_pf_manager;
 };
 
 
@@ -80,7 +86,8 @@ class IXFileHandle {
     unsigned ixReadPageCounter;
     unsigned ixWritePageCounter;
     unsigned ixAppendPageCounter;
-
+    int rootPageNum = -1;
+    FileHandle fh;
     // Constructor
     IXFileHandle();
 

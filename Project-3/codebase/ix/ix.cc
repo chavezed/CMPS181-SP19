@@ -2,6 +2,7 @@
 #include "ix.h"
 
 IndexManager* IndexManager::_index_manager = 0;
+PagedFileManager *IndexManager::_pf_manager = NULL;
 
 IndexManager* IndexManager::instance()
 {
@@ -20,23 +21,72 @@ IndexManager::~IndexManager()
 }
 
 RC IndexManager::createFile(const string &fileName)
-{
-    return -1;
+{   
+    void* rootPage = malloc(PAGE_SIZE);
+    void* leafPage = malloc(PAGE_SIZE);
+    char rootChar = ROOT_CHAR;
+    char leafChar = LEAF_CHAR;
+    int offset = 4092;
+    int freeSpaceRoot = 5;
+    int freeSpaceLeaf = 13;
+
+    if(_pf_manager->createFile(fileName) != 0){
+        free(rootPage);
+        free(leafPage);
+        return -1;
+    }
+
+    memset(rootPage,0,PAGE_SIZE);
+    memset(leafPage,0,PAGE_SIZE);
+    memcpy((char*)rootPage, &rootChar, sizeof(char));
+    memcpy((char*)leafPage, &leafChar, sizeof(char));
+    memcpy((char*)rootPage+offset, &freeSpaceRoot, sizeof(int));
+    memcpy((char*)leafPage+offset, &freeSpaceLeaf, sizeof(int));
+
+    FileHandle fh;
+    _pf_manager->openFile(fileName, fh);
+    fh.appendPage(rootPage);
+    fh.appendPage(leafPage);
+    _pf_manager->closeFile(fh);
+
+    free(rootPage);
+    free(leafPage);
+    return 0;
+    // return -1;
 }
 
 RC IndexManager::destroyFile(const string &fileName)
 {
-    return -1;
+    return _pf_manager->destroyFile(fileName);
+    // return -1;
 }
 
 RC IndexManager::openFile(const string &fileName, IXFileHandle &ixfileHandle)
 {
-    return -1;
+    FileHandle pfmfh;
+    _pf_manager->openFile(fileName,pfmfh);
+    int pagesInFile = pfmfh.getNumberOfPages();
+    char indicator[1];
+    void* page = malloc(PAGE_SIZE);
+    for(int i = 0; i < pagesInFile; i++){
+        pfmfh.readPage(i, page);
+        memcpy(indicator, page, sizeof(char));
+        if(indicator[0] == ROOT_CHAR){
+            ixfileHandle.rootPageNum = i;
+            break;
+        }
+    }
+    free(page);
+    ixfileHandle.fh = pfmfh;
+    if(ixfileHandle.rootPageNum == -1)
+        return -1;
+    return 0;
 }
 
 RC IndexManager::closeFile(IXFileHandle &ixfileHandle)
 {
-    return -1;
+    ixfileHandle.rootPageNum = -1;
+    return _pf_manager->closeFile(ixfileHandle.fh);
 }
 
 RC IndexManager::insertEntry(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid)
