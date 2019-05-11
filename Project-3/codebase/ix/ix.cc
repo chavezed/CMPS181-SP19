@@ -89,6 +89,104 @@ RC IndexManager::closeFile(IXFileHandle &ixfileHandle)
     return _pf_manager->closeFile(ixfileHandle.fh);
 }
 
+bool IndexManager::checkCondition(int checkInt, const void *value){
+    int32_t intValue;
+    memcpy (&intValue, value, INT_SIZE);
+    return checkInt >= intValue;
+}
+
+bool IndexManager::checkCondition(float checkReal, const void *value){
+    float realValue;
+    memcpy (&realValue, value, REAL_SIZE);
+    return checkReal >= realValue;
+}
+
+//for string
+bool IndexManager::checkCondition(void *checkString, const void *value){
+    int32_t valueSize;
+    memcpy(&valueSize, value, VARCHAR_LENGTH_SIZE);
+    char valueStr[valueSize + 1];
+    valueStr[valueSize] = '\0';
+    memcpy(valueStr, (char*) value + VARCHAR_LENGTH_SIZE, valueSize);
+
+    int32_t checkSize;
+    memcpy(&checkSize, checkString, VARCHAR_LENGTH_SIZE);
+    char checkStr[checkSize + 1];
+    checkStr[checkSize] = '\0';
+    memcpy(checkStr, (char*) checkString + VARCHAR_LENGTH_SIZE, checkSize);
+
+    int cmp = strcmp(checkStr, valueStr);
+
+    return cmp >= 0;
+    
+}
+
+RC IndexManager::findLeaf(IXFileHandle &ixfileHandle, const Attribute att, int &pageNum, const void* val){
+    void* page = malloc(PAGE_SIZE);
+    ixfileHandle.readPage(ixfileHandle.rootPageNum, page);
+    char indicator = ROOT_CHAR;
+    int numSlots = 0;
+    int nextPage = 0;
+    void* key = malloc(PAGE_SIZE);
+    memcpy(&numSlots, (char*)page + 4088, sizeof(int));
+    while(indicator != LEAF_CHAR){
+        if(numSlots == 0){
+            memcpy(&nextPage, (char*)page+5, sizeof(int));
+            pageNum = nextPage;
+            ixfileHandle.readPage(nextPage, page);
+            memcpy(&indicator, (char*)page, sizeof(char));
+            memcpy(&numSlots, (char*)page + 4088, sizeof(int));
+            continue;
+        }
+        int slotStart = 0;
+        int length = 0;
+        int offset = 0;
+        bool condition = true;
+        for(int i = 0; i < numSlots; i++){
+            slotStart = 4080-(i*8);
+            memcpy(&length, (char*)page+slotStart,sizeof(int));
+            memcpy(&offset, (char*)page+slotStart+sizeof(int), sizeof(int));
+            memcpy((char*)key, (char*)page+offset, length-sizeof(int));//subtract int because page pointer
+            if(att.type == TypeVarChar){
+                condition = checkCondition(key,val);
+            }
+            else if(att.type == TypeReal){
+                float floatKey= 0;
+                memcpy(&floatKey, key, sizeof(float));
+                condition = checkCondition(floatKey,val);
+            }
+            else{
+                int intKey= 0;
+                memcpy(&intKey, key, sizeof(int));
+                condition = checkCondition(intKey,val);
+            }
+            if(condition == true && i == numSlots-1){//last slot is still smaller
+                //open page on right
+                offset = offset + length-sizeof(int);//end of for loop, offset is reused.
+                memcpy(&pageNum, (char*)page+offset, sizeof(int));
+                memcpy(&nextPage, &pageNum, sizeof(int));
+                ixfileHandle.readPage(nextPage, page);
+                memcpy(&indicator, (char*)page, sizeof(char));
+                memcpy(&numSlots, (char*)page + 4088, sizeof(int));
+                break;
+            }
+            if(condition == false){
+                offset = offset - sizeof(int);//end of for loop, offset is reused.
+                memcpy(&pageNum, (char*)page+offset, sizeof(int));
+                memcpy(&nextPage, &pageNum, sizeof(int));
+                ixfileHandle.readPage(nextPage, page);
+                memcpy(&indicator, (char*)page, sizeof(char));
+                memcpy(&numSlots, (char*)page + 4088, sizeof(int));
+                break;
+            }
+
+        }
+    }
+    free(page);
+    free(key);
+    return 0;
+}
+
 RC IndexManager::insertEntry(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid)
 {
     return -1;
@@ -144,8 +242,30 @@ IXFileHandle::~IXFileHandle()
 {
 }
 
+RC IXFileHandle::readPage(PageNum pageNum, void *data){
+    return fh.readPage(pageNum, data);
+}
+
+RC IXFileHandle::writePage(PageNum pageNum, const void *data){
+    return fh.writePage(pageNum, data);
+} 
+
+RC IXFileHandle::appendPage(const void *data){
+    return fh.appendPage(data);
+}
+
+unsigned IXFileHandle::getNumberOfPages(){
+    return fh.getNumberOfPages();
+}  
+
 RC IXFileHandle::collectCounterValues(unsigned &readPageCount, unsigned &writePageCount, unsigned &appendPageCount)
 {
-    return -1;
+    ixReadPageCounter = fh.readPageCounter;
+    ixWritePageCounter = fh.writePageCounter;
+    ixAppendPageCounter = fh.appendPageCounter;
+    readPageCount   = ixReadPageCounter;
+    writePageCount  = ixWritePageCounter;
+    appendPageCount = ixAppendPageCounter;
+    return SUCCESS;
 }
 

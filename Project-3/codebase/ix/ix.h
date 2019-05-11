@@ -33,6 +33,12 @@ class IndexManager {
         // Close an ixfileHandle for an index.
         RC closeFile(IXFileHandle &ixfileHandle);
 
+        bool checkCondition(int checkInt, const void *value);
+        bool checkCondition(float checkReal, const void *value);
+        bool checkCondition(void *checkString, const void *value);
+
+        RC findLeaf(IXFileHandle &ixfileHandle, const Attribute att, int &pageNum, const void* val);
+
         // Insert an entry into the given index that is indicated by the given ixfileHandle.
         RC insertEntry(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid);
 
@@ -93,6 +99,11 @@ class IXFileHandle {
 
     // Destructor
     ~IXFileHandle();
+
+    RC readPage(PageNum pageNum, void *data);                           // Get a specific page
+    RC writePage(PageNum pageNum, const void *data);                    // Write a specific page
+    RC appendPage(const void *data);                                    // Append a specific page
+    unsigned getNumberOfPages();
 
 	// Put the current counter values of associated PF FileHandles into variables
 	RC collectCounterValues(unsigned &readPageCount, unsigned &writePageCount, unsigned &appendPageCount);
