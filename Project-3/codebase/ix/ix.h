@@ -37,7 +37,13 @@ class IndexManager {
         bool checkCondition(float checkReal, const void *value);
         bool checkCondition(void *checkString, const void *value);
 
+        //helper functions 
         RC findLeaf(IXFileHandle &ixfileHandle, const Attribute att, int &pageNum, const void* val);
+        bool isSpaceLeaf(IXFileHandle &ixfileHandle, const PageNum pageNum, const Attribute att, const void* val);
+        bool isSpaceNonLeaf(IXFileHandle &ixfileHandle, const PageNum pageNum, const Attribute att, const void* val);
+        void insertToLeafSorted(IXFileHandle &ixfileHandle, const Attribute &att, const void *key, const RID &rid);
+        void splitLeaf(IXFileHandle &ixfileHandle, PageNum pageID, const void * key, const Attribute &att, const RID &rid);
+        //helper functions ^
 
         // Insert an entry into the given index that is indicated by the given ixfileHandle.
         RC insertEntry(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid);
@@ -70,7 +76,7 @@ class IndexManager {
 class IX_ScanIterator {
     public:
 
-		// Constructor
+        // Constructor
         IX_ScanIterator();
 
         // Destructor
@@ -105,8 +111,8 @@ class IXFileHandle {
     RC appendPage(const void *data);                                    // Append a specific page
     unsigned getNumberOfPages();
 
-	// Put the current counter values of associated PF FileHandles into variables
-	RC collectCounterValues(unsigned &readPageCount, unsigned &writePageCount, unsigned &appendPageCount);
+    // Put the current counter values of associated PF FileHandles into variables
+    RC collectCounterValues(unsigned &readPageCount, unsigned &writePageCount, unsigned &appendPageCount);
 
 };
 
