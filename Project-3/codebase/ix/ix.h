@@ -12,6 +12,9 @@
 # define LEAF_CHAR 'l'
 # define INTERNAL_CHAR 'i'
 # define EMPTY_CHAR 'e'
+# define LESSTHAN (3)
+# define GREATERTHANOREQUAL (2)
+# define EQUAL (1)
 
 class IX_ScanIterator;
 class IXFileHandle;
@@ -33,15 +36,15 @@ class IndexManager {
         // Close an ixfileHandle for an index.
         RC closeFile(IXFileHandle &ixfileHandle);
 
-        bool checkCondition(int checkInt, const void *value);
-        bool checkCondition(float checkReal, const void *value);
-        bool checkCondition(void *checkString, const void *value);
+        RC checkCondition(int checkInt, const void *value);
+        RC checkCondition(float checkReal, const void *value);
+        RC checkCondition(void *checkString, const void *value);
 
         //helper functions 
         RC findLeaf(IXFileHandle &ixfileHandle, const Attribute att, int &pageNum, const void* val);
         bool isSpaceLeaf(IXFileHandle &ixfileHandle, const PageNum pageNum, const Attribute att, const void* val);
         bool isSpaceNonLeaf(IXFileHandle &ixfileHandle, const PageNum pageNum, const Attribute att, const void* val);
-        void insertToLeafSorted(IXFileHandle &ixfileHandle, const Attribute &att, const void *key, const RID &rid);
+        void insertToLeafSorted(IXFileHandle &ixfileHandle, const Attribute &att, const void *key, const RID &rid, PageNum pageID);
         void splitLeaf(IXFileHandle &ixfileHandle, PageNum pageID, const void * key, const Attribute &att, const RID &rid);
         //helper functions ^
 

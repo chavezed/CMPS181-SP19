@@ -26,9 +26,10 @@ RC IndexManager::createFile(const string &fileName)
     void* leafPage = malloc(PAGE_SIZE);
     char rootChar = ROOT_CHAR;
     char leafChar = LEAF_CHAR;
-    int offset = 4092;
-    int freeSpaceRoot = 5;
-    int freeSpaceLeaf = 13;
+    int offsetRoot = 5;// char indicator + empty parent pointer
+    int offsetLeaf = 13;// char indicator + parent pointer + back pointer + forward pointer
+    int freeSpaceRoot = 9;//char indicator + empty parent pointer + freespace pointer
+    int freeSpaceLeaf = 17;// char indicator + parent pointer + back pointer + forward pointer + freespace pointer
 
     if(_pf_manager->createFile(fileName) != 0){
         free(rootPage);
@@ -40,8 +41,13 @@ RC IndexManager::createFile(const string &fileName)
     memset(leafPage,0,PAGE_SIZE);
     memcpy((char*)rootPage, &rootChar, sizeof(char));
     memcpy((char*)leafPage, &leafChar, sizeof(char));
-    memcpy((char*)rootPage+offset, &freeSpaceRoot, sizeof(int));
-    memcpy((char*)leafPage+offset, &freeSpaceLeaf, sizeof(int));
+    memcpy((char*)rootPage+offsetRoot, &freeSpaceRoot, sizeof(int)); //placing free space pointer
+    memcpy((char*)leafPage+offsetLeaf, &freeSpaceLeaf, sizeof(int)); //placing free space pointer
+    //parent of leaf is root which is page zero at the moment.
+    //root has no parent, but keeping the space open for when it gets split and turned into a interior node.
+    // setting first pointer in root page to the first leaf page.
+    int leafPageID = 1;
+    memcpy((char*)rootPage+freeSpaceRoot, &leafPageID, sizeof(int));
 
     FileHandle fh;
     _pf_manager->openFile(fileName, fh);
@@ -52,13 +58,11 @@ RC IndexManager::createFile(const string &fileName)
     free(rootPage);
     free(leafPage);
     return 0;
-    // return -1;
 }
 
 RC IndexManager::destroyFile(const string &fileName)
 {
     return _pf_manager->destroyFile(fileName);
-    // return -1;
 }
 
 RC IndexManager::openFile(const string &fileName, IXFileHandle &ixfileHandle)
@@ -89,20 +93,36 @@ RC IndexManager::closeFile(IXFileHandle &ixfileHandle)
     return _pf_manager->closeFile(ixfileHandle.fh);
 }
 
-bool IndexManager::checkCondition(int checkInt, const void *value){
+RC IndexManager::checkCondition(int checkInt, const void *value){
     int32_t intValue;
     memcpy (&intValue, value, INT_SIZE);
-    return checkInt >= intValue;
+    if(checkInt == intValue){
+        return 1;
+    }
+    else if (checkInt >= intValue){
+        return 2;
+    }
+    else {
+        return 3;
+    }
 }
 
-bool IndexManager::checkCondition(float checkReal, const void *value){
+RC IndexManager::checkCondition(float checkReal, const void *value){
     float realValue;
     memcpy (&realValue, value, REAL_SIZE);
-    return checkReal >= realValue;
+    if(checkReal == realValue){
+        return 1;
+    }
+    else if (checkReal >= realValue){
+        return 2;
+    }
+    else {
+        return 3;
+    }
 }
 
 //for string
-bool IndexManager::checkCondition(void *checkString, const void *value){
+RC IndexManager::checkCondition(void *checkString, const void *value){
     //for value
     int32_t valueSize;
     memcpy(&valueSize, value, VARCHAR_LENGTH_SIZE);
@@ -119,70 +139,130 @@ bool IndexManager::checkCondition(void *checkString, const void *value){
 
     int cmp = strcmp(checkStr, valueStr);
 
-    return cmp >= 0; // checkString >= value
-    
+    if(cmp == 0){
+        return 1;
+    }
+    else if(cmp >= 0){
+        return 2; // checkString >= value
+    }
+    else {
+        return 3; // checkString < value
+    }
 }
 
 RC IndexManager::findLeaf(IXFileHandle &ixfileHandle, const Attribute att, int &pageNum, const void* val){
     void* page = malloc(PAGE_SIZE);
     ixfileHandle.readPage(ixfileHandle.rootPageNum, page);
+    int offset = 9; //start of free space
+    int freeSpace = 0;
     char indicator = ROOT_CHAR;
-    int numSlots = 0;
+    RC condition = 0;
     int nextPage = 0;
     void* key = malloc(PAGE_SIZE);
-    memcpy(&numSlots, (char*)page + 4088, sizeof(int));
-    while(indicator != LEAF_CHAR){
-        if(numSlots == 0){
-            memcpy(&nextPage, (char*)page+5, sizeof(int));
+    memset(key, 0, PAGE_SIZE);
+    int length = 0; // used to find length of char.
+
+    memcpy(&freeSpace, (char*)page+5, sizeof(int));//5 because char indicator then parent pointer then freespace poiner
+
+    while(indicator != LEAF_CHAR){ //loops through pages
+
+        if(freeSpace == 9){//means that there are no entries in this page
+            memcpy(&nextPage, (char*)page+9, sizeof(int));
             pageNum = nextPage;
             ixfileHandle.readPage(nextPage, page);
             memcpy(&indicator, (char*)page, sizeof(char));
-            memcpy(&numSlots, (char*)page + 4088, sizeof(int));
+            memcpy(&freeSpace, (char*)page+5, sizeof(int));//finds free space offset of page.
             continue;
         }
-        int slotStart = 0;
-        int length = 0;
-        int offset = 0;
-        bool condition = true;
-        for(int i = 0; i < numSlots; i++){
-            slotStart = 4080-(i*8);
-            memcpy(&length, (char*)page+slotStart,sizeof(int));
-            memcpy(&offset, (char*)page+slotStart+sizeof(int), sizeof(int));
-            memcpy((char*)key, (char*)page+offset, length-sizeof(int));//subtract int because page pointer
+
+        while(freeSpace > offset && condition){ // loops through keys in page
+            memcpy(&nextPage, (char*)page+offset, sizeof(int));
+            offset += sizeof(int);
             if(att.type == TypeVarChar){
-                condition = checkCondition(key,val);
+                memcpy(&length, (char*)page+offset, sizeof(int));
+                memcpy(key, (char*)page+offset, sizeof(int) + length);
+                
+                condition = checkCondition(key,val); // returns bool
+
+                if(condition == LESSTHAN){//if key < val then go to next page.
+                    ixfileHandle.readPage(ixfileHandle.rootPageNum, page);
+                    pageNum = nextPage;
+                    memset(key, 0, PAGE_SIZE);
+                    offset = 9;
+                    memcpy(&freeSpace, (char*)page+5, sizeof(int));
+                    memcpy(&indicator, (char*)page, sizeof(char));
+                    break;
+                }
+                else if (freeSpace == (int)(offset + sizeof(int) + length)){// case where val is greater than last key on the page. 
+                    memcpy((char*)page+offset, val, sizeof(int) + length);//dethrone last greatest key and try to place val in the leaf page
+                    pageNum = nextPage;
+                    ixfileHandle.readPage(ixfileHandle.rootPageNum, page);
+                    memset(key, 0, PAGE_SIZE);
+                    offset = 9;
+                    memcpy(&freeSpace, (char*)page+5, sizeof(int));
+                    memcpy(&indicator, (char*)page, sizeof(char));
+                    break;
+                }
+                else {//go to the next key in the interior page.
+                    offset += (sizeof(int) + length);
+                }
             }
             else if(att.type == TypeReal){
                 float floatKey= 0;
                 memcpy(&floatKey, key, sizeof(float));
                 condition = checkCondition(floatKey,val);
+                if(condition == LESSTHAN){//if false then go to next page.
+                    ixfileHandle.readPage(ixfileHandle.rootPageNum, page);
+                    pageNum = nextPage;
+                    memset(key, 0, PAGE_SIZE);
+                    offset = 9;
+                    memcpy(&freeSpace, (char*)page+5, sizeof(int));
+                    memcpy(&indicator, (char*)page, sizeof(char));
+                    break;
+                }
+                else if (freeSpace == (int)(offset + sizeof(int) + length)){// case where val is greater than last key on the page. 
+                    memcpy((char*)page+offset, val, sizeof(int));//dethrone last greatest key and try to place val in the leaf page
+                    pageNum = nextPage;
+                    ixfileHandle.readPage(ixfileHandle.rootPageNum, page);
+                    memset(key, 0, PAGE_SIZE);
+                    offset = 9;
+                    memcpy(&freeSpace, (char*)page+5, sizeof(int));
+                    memcpy(&indicator, (char*)page, sizeof(char));
+                    break;
+                }
+                else {//go to the next key in the interior page.
+                    offset += sizeof(int);
+                }
             }
             else{
                 int intKey= 0;
                 memcpy(&intKey, key, sizeof(int));
                 condition = checkCondition(intKey,val);
-            }
-            if(condition == true && i == numSlots-1){//last slot is still smaller
-                //open page on right
-                offset = offset + length-sizeof(int);//end of for loop, offset is reused.
-                memcpy(&pageNum, (char*)page+offset, sizeof(int));
-                memcpy(&nextPage, &pageNum, sizeof(int));
-                ixfileHandle.readPage(nextPage, page);
-                memcpy(&indicator, (char*)page, sizeof(char));
-                memcpy(&numSlots, (char*)page + 4088, sizeof(int));
-                break;
-            }
-            if(condition == false){
-                offset = offset - sizeof(int);//end of for loop, offset is reused.
-                memcpy(&pageNum, (char*)page+offset, sizeof(int));
-                memcpy(&nextPage, &pageNum, sizeof(int));
-                ixfileHandle.readPage(nextPage, page);
-                memcpy(&indicator, (char*)page, sizeof(char));
-                memcpy(&numSlots, (char*)page + 4088, sizeof(int));
-                break;
-            }
 
-        }
+                if(condition == LESSTHAN){//if false then go to next page.
+                    ixfileHandle.readPage(ixfileHandle.rootPageNum, page);
+                    pageNum = nextPage;
+                    memset(key, 0, PAGE_SIZE);
+                    offset = 9;
+                    memcpy(&freeSpace, (char*)page+5, sizeof(int));
+                    memcpy(&indicator, (char*)page, sizeof(char));
+                    break;
+                }
+                else if (freeSpace == (int)(offset + sizeof(int) + length)){// case where val is greater than last key on the page. 
+                    memcpy((char*)page+offset, val, sizeof(int));//dethrone last greatest key and try to place val in the leaf page
+                    pageNum = nextPage;
+                    ixfileHandle.readPage(ixfileHandle.rootPageNum, page);
+                    memset(key, 0, PAGE_SIZE);
+                    offset = 9;
+                    memcpy(&freeSpace, (char*)page+5, sizeof(int));
+                    memcpy(&indicator, (char*)page, sizeof(char));
+                    break;
+                }
+                else {//go to the next key in the interior page.
+                    offset += sizeof(int);
+                }
+            }
+        }  
     }
     free(page);
     free(key);
@@ -191,14 +271,10 @@ RC IndexManager::findLeaf(IXFileHandle &ixfileHandle, const Attribute att, int &
 
 bool IndexManager::isSpaceLeaf(IXFileHandle &ixfileHandle, const PageNum pageNum, const Attribute att, const void* val){
     void* page = malloc(PAGE_SIZE);
-    ixfileHandle.readPage(pageNum, page);
-    int offset = 4088;//start of number of records
     int freeOffset = 0;
-    int numberOfRecord = 0;
     int recordSize = 0;
 
-    memcpy(&numberOfRecord, (char *)page + offset, sizeof(int));
-    memcpy(&freeOffset, (char *)page + offset + sizeof(int), sizeof(int));
+    memcpy(&freeOffset, (char *)page + 13, sizeof(int));
 
     if(att.type != TypeVarChar){
         recordSize = sizeof(int) * 3; // key + rid.slotnumber + rid.pageNum
@@ -211,7 +287,7 @@ bool IndexManager::isSpaceLeaf(IXFileHandle &ixfileHandle, const PageNum pageNum
 
     free(page);
 
-    int totalSpaceUsed = freeOffset + recordSize + (numberOfRecord + 1) * (sizeof(int) * 2);
+    int totalSpaceUsed = freeOffset + recordSize;
 
     return ( totalSpaceUsed < PAGE_SIZE ); 
 }
@@ -219,13 +295,11 @@ bool IndexManager::isSpaceLeaf(IXFileHandle &ixfileHandle, const PageNum pageNum
 bool IndexManager::isSpaceNonLeaf(IXFileHandle &ixfileHandle, const PageNum pageNum, const Attribute att, const void* val){
     void* page = malloc(PAGE_SIZE);
     ixfileHandle.readPage(pageNum, page);
-    int offset = 4088;//start of number of records
     int freeOffset = 0;
-    int numberOfRecord = 0;
     int recordSize = 0;
 
-    memcpy(&numberOfRecord, (char *)page + offset, sizeof(int));
-    memcpy(&freeOffset, (char *)page + offset + sizeof(int), sizeof(int));
+    memcpy(&freeOffset, (char *)page + 5, sizeof(int));
+    free(page);
 
     if(att.type != TypeVarChar){
         recordSize = sizeof(int) * 2; // key + pointer to page
@@ -236,9 +310,9 @@ bool IndexManager::isSpaceNonLeaf(IXFileHandle &ixfileHandle, const PageNum page
         recordSize = sizeof(int) * 2 + length; // pointer to page + key.length + key
     }
 
-    free(page);
+    
 
-    int totalSpaceUsed = freeOffset + recordSize + (numberOfRecord + 1) * (sizeof(int) * 2);
+    int totalSpaceUsed = freeOffset + recordSize;
 
     return ( totalSpaceUsed < PAGE_SIZE ); 
 }
@@ -246,150 +320,151 @@ bool IndexManager::isSpaceNonLeaf(IXFileHandle &ixfileHandle, const PageNum page
 void IndexManager::insertToLeafSorted(IXFileHandle &ixfileHandle, const Attribute &att, const void *key, const RID &rid, PageNum pageID){
     void* page = malloc(PAGE_SIZE);
     ixfileHandle.readPage(pageID, page);
-    int offset = 4088;//start of number of records
+    int offset = 17;//start of free space
     int freeOffset = 0;
-    int numberOfRecord = 0;
     int recordSize = 0;
+    int numberOfRIDs = 0;
+    RC condition = 0;
 
-    memcpy(&numberOfRecord, (char *)page + offset, sizeof(int));
-    memcpy(&freeOffset, (char *)page + offset + sizeof(int), sizeof(int));
+    memcpy(&freeOffset, (char *)page + 13, sizeof(int));
 
-    if(att.type != TypeVarChar){
-        recordSize = sizeof(int) * 3; // key + rid.slotnumber + rid.pageNum
-        void * recordForInsert = malloc(recordSize);
-        memset(recordForInsert, 0, recordSize);
-        memcpy(recordForInsert, key, sizeof(int));
-        memcpy((char*)recordForInsert + sizeof(int), &rid.pageNum, sizeof(int));
-        memcpy((char*)recordForInsert + 2*sizeof(int), &rid.slotNum, sizeof(int));
 
-        if(att.type == TypeInt){
-            int compOffSet = 0;
-            int slot;
-            int compKey = 0;
+    //This if statement finds the spot where the insert needs to go.
+    if(att.type == TypeInt){
+        int compKey = 0;
 
-            for(slot = 0; slot < numberOfRecord; slot++){
-                offset -= sizeof(int) * 2; 
-                memcpy(&compOffSet, (char*)page + offset + sizeof(int), sizeof(int));
-                memcpy(&compKey, (char*)page + compOffSet, sizeof(int));
+        while(offset < freeOffset){ // will break if it finds the spot
+            memcpy(&numberOfRIDs, (char*)page + offset, sizeof(int));
 
-                if(checkCondition(compKey, key)){
-                    break;
-                }
-            }
-        }
-        else{
-            int compOffSet = 0;
-            int slot;
-            float compKey = 0;
+            //find size of entire record.
+            recordSize = 2 * sizeof(int) + numberOfRIDs * (2 * sizeof(int)); // numberOfRIDs + key + numberOfRIDs * (rid.pageNum + rid.slotNum)
 
-            for(slot = 0; slot < numberOfRecord; slot++){
-                offset -= sizeof(int) * 2; 
-                memcpy(&compOffSet, (char*)page + offset + sizeof(int), sizeof(int));
-                memcpy(&compKey, (char*)page + compOffSet, sizeof(int));
+            //get the key of the record.
+            memcpy(&compKey, (char*)page + offset + sizeof(int), sizeof(int));
 
-                if(checkCondition(compKey, key)){
-                    break;
-                }
-            }
-        }
-
-    }
-    else {
-
-        int length = 0;
-        memcpy(&length, (char *)key, sizeof(int));
-        recordSize = sizeof(int) * 3 + length; // rid.slotnumber + rid.pageNum + key.length + key
-
-        //creating void pointer for insertion, goes <key, rid.pageNum, rid.slotNum>
-        void * recordForInsert = malloc(recordSize);
-        memset(recordForInsert, 0, recordSize);
-        memcpy(recordForInsert, key, sizeof(int)+length);
-        memcpy((char*)recordForInsert + sizeof(int)+length, &rid.pageNum, sizeof(int));
-        memcpy((char*)recordForInsert + 2*sizeof(int) + length, &rid.slotNum, sizeof(int));
-
-        void * compKey = malloc(PAGE_SIZE);
-        memset(compKey, 0, PAGE_SIZE);
-
-        int compOffSet = 0;
-        length = 0;
-        int slot;
-
-        for(slot = 0; slot < numberOfRecord; slot++){
-            offset -= sizeof(int) * 2; 
-            memcpy(&length, (char*)page + offset, sizeof(int));
-            memcpy(&compOffSet, (char*)page + offset + sizeof(int), sizeof(int));
-
-            memcpy(compKey, (char *) page + compOffSet, length);
-
-            if(checkCondition(compKey, key)){
+            condition = checkCondition(compKey, key);
+            if(condition != LESSTHAN){
                 break;
             }
+            //move offset past record in prep to get next record.
+            offset += recordSize; 
+        }
+    }
+    else if (att.type == TypeReal){
+        float compKey = 0;
+
+        while(offset < freeOffset){ // will break if it finds the spot
+            memcpy(&numberOfRIDs, (char*)page + offset, sizeof(int));
+
+            //find size of entire record.
+            recordSize = 2 * sizeof(int) + numberOfRIDs * (2 * sizeof(int)); // numberOfRIDs + key + numberOfRIDs * (rid.pageNum + rid.slotNum)
+
+            memcpy(&compKey, (char*)page + offset + sizeof(float), sizeof(float)); 
+
+            condition = checkCondition(compKey, key);
+            if(condition != LESSTHAN){
+                break;
+            }
+            //move offset past record in prep to get next record.
+            offset += recordSize;
+        }
+    }
+    else {
+        void * compKey = malloc(PAGE_SIZE);
+        memset(compKey, 0, PAGE_SIZE);
+        int length = 0;
+
+        while(offset < freeOffset){ // will break if it finds the spot
+            memcpy(&numberOfRIDs, (char*)page + offset, sizeof(int));
+            memcpy(&length, (char*)page + offset + sizeof(int), sizeof(int));
+
+            recordSize = 2 * sizeof(int) + length + numberOfRIDs * (2 * sizeof(int)); // numberOfRIDs + length + key + numberOfRIDs * (rid.pageNum + rid.slotNum)
+
+            memcpy(compKey, (char *) page + offset + sizeof(int), length + sizeof(int)); // get lenght of key and key
+
+            condition = checkCondition(compKey, key);
+            if(condition == LESSTHAN){
+                break;
+            }
+            offset += recordSize;
         }
         free(compKey);
     }
 
-    void * shift = malloc(freeOffset - compOffSet);
-    memset(shift, 0, (freeOffset - compOffSet));
+    int sizeofShift = freeOffset - offset + recordSize;
+    void * shift = malloc(sizeofShift);
+    memset(shift, 0, sizeofShift);
 
-    //shift gets from key to free space offset.
-    memcpy(shift, (char*)page + compOffSet, (freeOffset - compOffSet));
+    //shift gets from end of compKey to free space offset.
+    memcpy(shift, (char*)page + offset + recordSize, sizeofShift);
+
     //inserting key at correct spot.
-    memcpy((char*)page + compOffSet, recordForInsert, recordSize);
-    //inserting shift after key
-    memcpy((char*)page + compOffSet + recordSize, shift, (freeOffset - compOffSet));
+    if(condition == EQUAL){
+        //update the number of rids associated with the key.
+        numberOfRIDs += 1;
+        memcpy((char*)page + offset, &numberOfRIDs, sizeof(int));
+        //place rid at end of record.
+        offset += recordSize;
+        memcpy((char*)page + offset, &rid.pageNum, sizeof(int));
+        memcpy((char*)page + offset + sizeof(int), &rid.slotNum, sizeof(int));
+        offset += 2*sizeof(int);
 
-    //record upkeep: slot records
-    //shift first
-    int endOfSlots = 4088 - numberOfRecord * 2 * sizeof(int);
-    memcpy(shift, (char*)page + endOfSlots, (endOfSlots-offset));
-    memcpy((char*)page + endOfSlots - 2 * sizeof(int), shift, (endOfSlots-offset));
-    memcpy((char*)page + endOfSlots, &recordSize, sizeof(int));
-    memcpy((char*)page + endOfSlots + sizeof(int), &compOffSet, sizeof(int));
-
-    //update number of records
-    numberOfRecord += 1;
-    memcpy((char*)page + 4088, numberOfRecord, sizeof(int));
-    //update free space offset
-    freeOffset += recordSize;
-    memcpy((char*)page + 4092, freeOffset, sizeof(int));
-
-    int oldOffset = 0;
-    for(int i = slot + 1; i < numberOfRecord; i++){
-        offset -= sizeof(int) * 2; 
-        memcpy(&oldOffset, (char*)page + offset + sizeof(int), sizeof(int));
-        oldOffset += recordSize;
-        memcpy((char*)page + offset + sizeof(int), &oldOffset, sizeof(int));
     }
+    else{
+        offset += recordSize;
+        numberOfRIDs = 1; //reusing this for new record.
+        memcpy((char*)page + offset, &numberOfRIDs, sizeof(int));
+        offset += sizeof(int);
+
+        if (att.type == TypeVarChar){
+            int length = 0;
+            memcpy(&length, key, sizeof(int));
+            memcpy((char*)page + offset, key, sizeof(int) + length);
+            offset += sizeof(int) + length;
+        }
+        else {
+            memcpy((char*)page + offset, key, sizeof(int));
+            offset += sizeof(int);
+        }
+
+        memcpy((char*)page + offset, &rid.pageNum, sizeof(int));
+        offset += sizeof(int);
+        memcpy((char*)page + offset, &rid.slotNum, sizeof(int));
+        offset += sizeof(int);
+    }
+    //inserting shift after key
+    memcpy((char*)page + offset, shift, (freeOffset - offset + recordSize));
 }
 
 void IndexManager::splitLeaf(IXFileHandle &ixfileHandle, PageNum pageID, const void * key, const Attribute &att, const RID &rid){
     void* page = malloc(PAGE_SIZE);
+    memset(page, 0, PAGE_SIZE);
     ixfileHandle.readPage(pageID, page);
-    int offset = 4088;//start of number of records
+    void * keyAtSplit = malloc(PAGE_SIZE); //for pushing up the traffic cop.
+    int offset = 17;
     int freeOffset = 0;
-    int numberOfRecord = 0;
+    int numberOfRIDs = 0;
+    int length = 0;
 
-    memcpy(&numberOfRecord, (char *)page + offset, sizeof(int));
-    memcpy(&freeOffset, (char *)page + offset + sizeof(int), sizeof(int));
+    memcpy(&freeOffset, (char *)page + 13, sizeof(int));
 
     int halfWay = freeOffset/2; 
-    int halfOffset = 0;
-    int slot;
 
-    for(slot = 0; slot < numberOfRecord; slot++){
-        offset -= 2* sizeof(int);
-        memcpy(&halfOffset, (char*)page + offset + sizeof(int), sizeof(int));
-        if (halfOffset > halfWay){
-            offset += 2* sizeof(int);
-            memcpy(&halfOffset, (char*)page + offset + sizeof(int), sizeof(int));
-            break;
+    while(offset < halfWay){
+        memcpy(&numberOfRIDs, (char*)page + offset, sizeof(int));
+        offset += sizeof(int);
+        if(att.type == TypeVarChar){
+            memcpy(&length, (char*)page + offset, sizeof(int));
+            memcpy(keyAtSplit, (char*)page + offset, sizeof(int) + length); //info for traffic cop
+            offset += sizeof(int) + length;
         }
+        else {
+            memcpy(keyAtSplit, (char*)page + offset, sizeof(int)); //info for traffic cop
+            offset += sizeof(int);
+        }
+
     }
-    //for pushing up the traffic cop.
-    int lengthOfRecord = 0; 
-    void * recordAtSplit = malloc(PAGE_SIZE);
-    memcpy(&lengthOfRecord, (char*)page + offset, sizeof(int));
-    memcpy(recordAtSplit, (char*)page + halfOffset, lengthOfRecord);
+    
     /////////////////////////////////////////////////////////////////////////////////////
 
     //append page
@@ -399,7 +474,7 @@ void IndexManager::splitLeaf(IXFileHandle &ixfileHandle, PageNum pageID, const v
     //set up page for appending
     //setting indicator
     char indicator = LEAF_CHAR;
-    memcpy((char*)newPage, indicator, sizeof(char));
+    memcpy((char*)newPage, &indicator, sizeof(char));
     newPageOffset += sizeof(char);
 
     //find parent of old page and set newPage parent to that.
@@ -418,69 +493,47 @@ void IndexManager::splitLeaf(IXFileHandle &ixfileHandle, PageNum pageID, const v
     memcpy((char*)newPage + newPageOffset, &forwardPage, sizeof(int));
 
     forwardPage = ixfileHandle.getNumberOfPages() + 1;
-    memcpy((char*)page + newPageOffset, forwardPage, sizeof(int));
-
+    memcpy((char*)page + newPageOffset, &forwardPage, sizeof(int));
     newPageOffset += sizeof(int);
 
-    //setting number of records and beginning of freespace for new page.
-    slot += 1; //started at zero
-    newNumberOfRecord = numberOfRecord - slot;
-    memcpy((char*)newPage + 4088, &newNumberOfRecord, sizeof(int));
-
-    int newPageFreeSpace = newPageOffset + (freeOffset - halfOffset);
-    memcpy((char*)newPage + 4092, &newPageFreeSpace, sizeof(int));
-
-    //setting number of records and beginning of freespace for old page.
-    memcpy((char*)page + 4088, &slot, sizeof(int));
-    memcpy((char*)newPage + 4092, &halfOffset, sizeof(int));
+    //setting beginning of freespace for new page.
+    int newPageFreeSpace = newPageOffset + sizeof(int) + (freeOffset - offset); //header + the old page's freeOffset - the old page's offset
+    memcpy((char*)newPage + newPageOffset, &newPageFreeSpace, sizeof(int));
+    newPageOffset += sizeof(int);
 
     //getting half of entries from old page and putting it in new page.
-    memcpy((char*)newPage + newPageOffset, (char*)page + halfOffset, (freeOffset - halfOffset));
-
-    int endOfSlots = 4088 - numberOfRecord * 2 * sizeof(int);
-    newPageOffset = 4088 - (numberOfRecord - slot) * 2 * sizeof(int);
-
-    memcpy((char*)newPage + newPageOffset, (char*)page + endOfSlots, (endOfSlots-offset));
-
-    offset = 4088;
-    int numberToSub = halfOffset - (3 * sizeof(int) + sizeof(char));
-    int changeOffset = 0;
-    for(int i = 0; i < slot; i++){
-        offset -= 2* sizeof(int);
-        memcpy(&changeOffset, (char*)newPage + offset + sizeof(int), sizeof(int));
-        changeOffset -= numberToSub;
-        memcpy((char*)newPage + offset + sizeof(int), &changeOffset, sizeof(int));
-    }
+    memcpy((char*)newPage + newPageOffset, (char*)page + offset, (freeOffset - offset));
 
     ixfileHandle.appendPage(newPage); 
 
     /////////////////////////////////////////////////////////////////////////////////////
+    //insert key into the correct page
     if(att.type == TypeVarChar){
-        if(checkCondition(key, recordAtSplit)){
-            insertToLeafSorted(ixfileHandle, att, key, rid, ixfileHandle.getNumberOfPages());
+        if(checkCondition(keyAtSplit, key)){
+            insertToLeafSorted(ixfileHandle, att, key, rid, pageID);
         }
         else{
-            insertToLeafSorted(ixfileHandle, att, key, rid, pageID);
+            insertToLeafSorted(ixfileHandle, att, key, rid, ixfileHandle.getNumberOfPages());
         }
     }
     else if(att.type == TypeInt){
         int comp = 0;
-        memcpy(&comp, key, sizeof(int));
-        if(checkCondition(comp, recordAtSplit)){
-            insertToLeafSorted(ixfileHandle, att, key, rid, ixfileHandle.getNumberOfPages());
+        memcpy(&comp, keyAtSplit, sizeof(int));
+        if(checkCondition(comp, key)){
+            insertToLeafSorted(ixfileHandle, att, key, rid, pageID);
         }
         else{
-            insertToLeafSorted(ixfileHandle, att, key, rid, pageID);
+            insertToLeafSorted(ixfileHandle, att, key, rid, ixfileHandle.getNumberOfPages());
         }
     }
     else {
         float comp = 0;
-        memcpy(&comp, key, sizeof(float));
-        if(checkCondition(comp, recordAtSplit)){
-            insertToLeafSorted(ixfileHandle, att, key, rid, ixfileHandle.getNumberOfPages());
+        memcpy(&comp, keyAtSplit, sizeof(float));
+        if(checkCondition(comp, key)){
+            insertToLeafSorted(ixfileHandle, att, key, rid, pageID);
         }
         else{
-            insertToLeafSorted(ixfileHandle, att, key, rid, pageID);
+            insertToLeafSorted(ixfileHandle, att, key, rid, ixfileHandle.getNumberOfPages());
         }
     } 
 
