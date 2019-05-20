@@ -67,8 +67,10 @@ RC IndexManager::destroyFile(const string &fileName)
 
 RC IndexManager::openFile(const string &fileName, IXFileHandle &ixfileHandle)
 {
-    FileHandle pfmfh;
-    _pf_manager->openFile(fileName,pfmfh);
+    FileHandle pfmfh = ixfileHandle.fh;
+    if(_pf_manager->openFile(fileName, pfmfh) != 0){
+        return -1;
+    }
     int pagesInFile = pfmfh.getNumberOfPages();
     char indicator[1];
     void* page = malloc(PAGE_SIZE);
@@ -82,8 +84,9 @@ RC IndexManager::openFile(const string &fileName, IXFileHandle &ixfileHandle)
     }
     free(page);
     ixfileHandle.fh = pfmfh;
-    if(ixfileHandle.rootPageNum == -1)
+    if(ixfileHandle.rootPageNum == -1){
         return -1;
+    }
     return 0;
 }
 
