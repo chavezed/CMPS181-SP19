@@ -436,7 +436,8 @@ void IndexManager::insertToLeafSorted(IXFileHandle &ixfileHandle, const Attribut
         offset += sizeof(int);
     }
     //inserting shift after key
-    memcpy((char*)page + offset, shift, (freeOffset - offset + recordSize));
+    memcpy((char*)page + offset, shift, sizeofShift);
+    ixfileHandle.writePage(pageID, page);
 }
 
 void IndexManager::splitLeaf(IXFileHandle &ixfileHandle, PageNum pageID, const void * key, const Attribute &att, const RID &rid){
@@ -549,7 +550,17 @@ void IndexManager::splitLeaf(IXFileHandle &ixfileHandle, PageNum pageID, const v
 
 RC IndexManager::insertEntry(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid)
 {
-    return -1;
+    int pageNum = 0;
+    findLeaf(ixfileHandle, attribute, pageNum, key);
+    bool placeable = isSpaceLeaf(ixfileHandle, pageNum, attribute, key);
+    if(placeable){
+        insertToLeafSorted(ixfileHandle, attribute, key, rid, pageNum);
+        return SUCCESS;
+    }
+    else{
+        return -1;
+    }
+
 }
 
 RC IndexManager::deleteEntry(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid)
