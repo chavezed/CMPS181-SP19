@@ -48,6 +48,13 @@ class IndexManager {
         void splitLeaf(IXFileHandle &ixfileHandle, PageNum pageID, const void * key, const Attribute &att, const RID &rid);
         //helper functions ^
 
+        // pushTrafficCopUp ft. helpers
+        void pushTrafficCopUp (IXFileHandle &ixfileHandle, void *key, Attribute attr, int pageNum, int childPage);
+        int getKeySize (void *key, Attribute attr);
+        int getPageFreeSpace (int pageNum, IXFileHandle &ixfileHandle);
+        void insertIntoInternal (void *page, void *key, Attribute attr, int offset, int freeSpaceOffset, int childPage);
+
+
         // Insert an entry into the given index that is indicated by the given ixfileHandle.
         RC insertEntry(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid);
 

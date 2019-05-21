@@ -548,6 +548,285 @@ void IndexManager::splitLeaf(IXFileHandle &ixfileHandle, PageNum pageID, const v
     free(newPage);
 }
 
+// * * * * * * * * * * * * * * * * * * * * * * * * * * 
+// start of push traffic cop up
+
+void IndexManager::pushTrafficCopUp (IXFileHandle &ixfileHandle, void *key, Attribute attr, int pageNum, int childPage) {
+    int freeSpace = getPageFreeSpace (pageNum, ixfileHandle);
+    int keySize = getKeySize (key, attr);
+
+    void *page = malloc (PAGE_SIZE);
+    ixfileHandle.readPage (pageNum, page);
+
+    int freeSpaceOffset = 0;
+    memcpy (&freeSpaceOffset, (char*)page + 5, sizeof(int));
+
+    // check if key + pagepointer fits in page
+    // if so enter into page and exit, no need to split page
+    if (keySize + sizeof(int) <= freeSpace) {
+        int offset = 13;
+        
+        insertIntoInternal (page, key, attr, offset, freeSpaceOffset, childPage);
+        ixfileHandle.writePage(pageNum, page);
+        free (page);
+        return;
+    }
+
+    // else key doesn't fit in page, handle split
+    else {
+        int offset = 13;
+
+        // find how many key entries in page
+        int count = 0;
+        while (offset < freeSpaceOffset) {
+            count += 1;
+            if (attr.type == TypeVarChar) {
+                int length = 0;
+                memcpy (&length, (char*)page + offset, sizeof(int));
+                offset += sizeof(int) + length + sizeof(int);
+            }
+            else {
+                offset += sizeof(int) + sizeof(int); // key size (int or float) + pagePointer
+            }
+        }
+
+        int halfEntriesCount = count / 2;
+        offset = 13;
+        int i;
+
+        // advance offset to middle key
+        for (i = 0; i < halfEntriesCount; ++i) {
+            if (attr.type == TypeVarChar) {
+                int length = 0;
+                memcpy (&length, (char*)page + offset, sizeof(int));
+                offset += sizeof(int) + length + sizeof(int);
+            }
+            else {
+                offset += sizeof(int) + sizeof(int); // key size (int or float) + pagePointer
+            }
+        }
+
+        // grab length of middle key plus page pointer
+        int middleKeyLen = 0;
+        if (attr.type != TypeVarChar) {
+            middleKeyLen = sizeof(int) + sizeof(int); // key(int or float) + pagePointer
+        }
+        else {
+            memcpy (&middleKeyLen, (char*)page + offset, sizeof(int));
+            middleKeyLen += sizeof(int) + sizeof(int); // key (length + string) + pagePointer
+        }
+
+        // grab middle key plus page pointer; update offset past middle key
+        void *middleKey = malloc (middleKeyLen);
+        memcpy (middleKey, (char*)page + offset, middleKeyLen);
+        offset += middleKeyLen;
+
+        // check if key less than middle key to determine where key belongs
+        // left page or the split page
+        int condition = 0;
+        void *compKey = malloc (middleKeyLen - 4); // remove page pointer; only grab key
+        memcpy (compKey, (char*)middleKey, middleKeyLen - 4);
+        condition = checkCondition (key, compKey); // check if key less than middle
+        free (compKey);
+
+        // set up the split page; copy over second half over to split page
+        int splitPageNum = ixfileHandle.getNumberOfPages();
+
+        void *splitPage = malloc (PAGE_SIZE);
+        // insert page type
+        char indicator = INTERNAL_CHAR;
+        memcpy(splitPage, &indicator, sizeof(char));
+        // set up parent page
+        int parent = 0;
+        memcpy (&parent, (char*)page + 1, sizeof(int));
+        memcpy ((char*)splitPage + 1, &parent, sizeof(int));
+        // set up leftmost pagePointer (first child pageNum)
+        int firstChildPageNum = 0;
+        memcpy (&firstChildPageNum, (char*)middleKey + middleKeyLen - 4, sizeof(int));
+        memcpy ((char*)splitPage + 9, &firstChildPageNum, sizeof(int));
+
+        // copy right half of index entries to split page (except middle key)
+        // offset points past middle key
+        int splitEntriesLength = freeSpaceOffset - offset;
+        memcpy((char*)splitPage + 13, (char*)page + offset, splitEntriesLength);
+        int splitFreeSpaceOffset = 13 + splitEntriesLength;
+        // update freespace offset on split page
+        memcpy ((char*)splitPage + 5, &splitFreeSpaceOffset, sizeof(int));
+
+        // update page freespace offset
+        // remove split half plus middle key
+        freeSpaceOffset -= (splitEntriesLength + middleKeyLen);
+        memcpy((char*)page + 5, &freeSpaceOffset, sizeof(int));
+
+        // clear moved index entries from page
+        // offset points one entry past middle key so offset to start of middle key
+        // to clear entries from middle key onwards
+        memset ((char*)page + offset - middleKeyLen, 0, middleKeyLen + splitEntriesLength);
+
+        offset = 13;
+        if (condition == LESSTHAN) { // insert key in left half
+            memcpy (&freeSpaceOffset, (char*)page + 5, sizeof(int));
+
+            insertIntoInternal (page, key, attr, offset, freeSpaceOffset, childPage); 
+        }
+        else { // insert key in right half of split
+            memcpy (&freeSpaceOffset, (char*)splitPage + 5, sizeof(int));
+
+            insertIntoInternal (splitPage, key, attr, offset, freeSpaceOffset, childPage);
+        }
+
+        // commit changes so far to disk
+        ixfileHandle.writePage(pageNum, page);
+        ixfileHandle.appendPage(splitPage);
+
+        // check if page that was split was the root
+        char pageIndicator;
+        memcpy (&pageIndicator, page, sizeof(char));
+
+        // key size passed in = PAGE_SIZE
+        // so copy over middle key to key
+        // and free allocated mem for middle key
+        memcpy (key, middleKey, middleKeyLen - 4);
+        free (middleKey);
+
+        if (pageIndicator == ROOT_CHAR) {
+            // set up root page
+            // since we appended above, getNumberOfPages gives us the correct page number
+            // since page numbers start at 0
+            int rootPageNum = ixfileHandle.getNumberOfPages();
+            void *newRootPage = malloc (PAGE_SIZE);
+            memset (newRootPage, 0, PAGE_SIZE);
+            // set indicator to root page
+            memcpy (newRootPage, &pageIndicator, sizeof(char));
+            // set freespaceoffset of new root
+            int rootFreeSpaceOffset = 13;
+            memcpy ((char*)newRootPage + 5, &rootFreeSpaceOffset, sizeof(int));
+            // set the leftmost child of the new child to point to page
+            memcpy ((char*)newRootPage + 9, &pageNum, sizeof(int));
+
+            // update parents of page and splitPage to the rootPageNum
+            memcpy ((char*)page + 1, &rootPageNum, sizeof(int));
+            memcpy ((char*)splitPage + 1, &rootPageNum, sizeof(int));
+
+            // update page to be interior page. remove root indicator
+            pageIndicator = INTERNAL_CHAR;
+            memcpy(page, &pageIndicator, sizeof(char));
+
+            // update rootPageNum of file
+            ixfileHandle.rootPageNum = rootPageNum;
+
+            ixfileHandle.appendPage (newRootPage);
+            ixfileHandle.writePage (pageNum, page);
+            ixfileHandle.writePage (splitPageNum, splitPage);
+
+            free (page);
+            free (splitPage);
+            free (newRootPage);
+
+            pushTrafficCopUp (ixfileHandle, key, attr, rootPageNum, splitPageNum);
+        }
+        else {
+            free (page);
+            free (splitPage);
+
+            pushTrafficCopUp (ixfileHandle, key, attr, parent, splitPageNum);
+        }
+    }
+}
+
+// * * * * * * * * * * * * * * *
+// helpers for pushTrafficCopUp *
+// * * * * * * * * * * * * * * *
+int IndexManager::getKeySize (void *key, Attribute attr) {
+    int keySize = sizeof(int);
+    if (attr.type != TypeVarChar) {
+        int length = 0;
+        memcpy (&length, key, sizeof(int));
+        keySize += length;
+    }
+    return keySize;
+}
+
+int IndexManager::getPageFreeSpace (int pageNum, IXFileHandle &ixfileHandle) {
+    void *page = malloc (PAGE_SIZE);
+    ixfileHandle.readPage (pageNum, page);
+    int freeSpaceOffset = 0;
+    memcpy ((char*)page + 5, &freeSpaceOffset, sizeof(int));
+    free (page);
+    return PAGE_SIZE - freeSpaceOffset;
+}
+
+// pass offset past meta data
+void IndexManager::insertIntoInternal (void *page, void *key, Attribute attr, int offset, int freeSpaceOffset, int childPage) {
+    int condition;
+    bool found = false;
+    int keySize = getKeySize (key, attr);
+
+    // find offset to insert key in page
+    while (offset < freeSpaceOffset) {
+        if (attr.type == TypeVarChar) {
+            int length = 0;
+            memcpy (&length, (char*)page + offset, sizeof(int));
+            void *compKey = malloc (sizeof(int) + length);
+            memcpy (compKey, (char*)page + offset, sizeof(int) + length);
+            condition = checkCondition (compKey, key);
+            if (condition == LESSTHAN) {
+                free (compKey);
+                found = true;
+                break;
+            }
+            offset += sizeof(int) + length + sizeof(int); // length + string + pagePointer
+            free (compKey);
+        }
+        else if (attr.type == TypeInt) {
+            int compKey = 0;
+            memcpy (&compKey, (char*)page + offset, sizeof(int));
+            condition = checkCondition (compKey, key);
+            if (condition == LESSTHAN) {
+                found = true;
+                break;
+            }
+            offset += sizeof(int) + sizeof(int); // key + pagePointer
+        }
+        else {
+            float compKey = 0;
+            memcpy (&compKey, (char*)page + offset, sizeof(float));
+            condition = checkCondition (compKey, key);
+            if (condition == LESSTHAN) {
+                found = true;
+                break;
+            }
+            offset += sizeof(float) + sizeof(int); // key + pagePointer
+        }
+    }
+
+    if (not found) { // append new entry
+        memcpy ((char*)page + offset, key, keySize);
+        offset += keySize;
+        memcpy((char*)page + offset, &childPage, sizeof(int));
+        offset += sizeof(int);
+        // update freespaceoffset
+        memcpy ((char*)page + 5, &offset, sizeof(int));
+    }
+    else { // move stuff back to make space for new entry
+        int shiftSize = freeSpaceOffset - offset;
+        void *shift = malloc (shiftSize);
+        memcpy(shift, (char*)page + offset, shiftSize);
+        memcpy ((char*)page + offset, key, keySize);
+        offset += keySize;
+        memcpy ((char*)page + offset, &childPage, sizeof(int));
+        offset += sizeof(int);
+
+        memcpy((char*)page + offset, shift, shiftSize);
+        offset += shiftSize;
+
+        memcpy ((char*)page + 5, &offset, sizeof(int));
+        free (shift);
+    }
+}
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * 
+
 RC IndexManager::insertEntry(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid)
 {
     int pageNum = 0;
