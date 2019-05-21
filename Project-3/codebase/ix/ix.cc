@@ -835,12 +835,11 @@ RC IndexManager::insertEntry(IXFileHandle &ixfileHandle, const Attribute &attrib
     bool placeable = isSpaceLeaf(ixfileHandle, pageNum, attribute, key);
     if(placeable){
         insertToLeafSorted(ixfileHandle, attribute, key, rid, pageNum);
-        return SUCCESS;
     }
     else{
-        return -1;
+        splitLeaf(ixfileHandle, pageNum, key, attribute, rid);
     }
-
+    return SUCCESS;
 }
 
 RC IndexManager::deleteEntry(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid)
