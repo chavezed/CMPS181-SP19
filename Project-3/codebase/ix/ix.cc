@@ -767,7 +767,7 @@ int IndexManager::getPageFreeSpace (int pageNum, IXFileHandle &ixfileHandle) {
     void *page = malloc (PAGE_SIZE);
     ixfileHandle.readPage (pageNum, page);
     int freeSpaceOffset = 0;
-    memcpy ((char*)page + 5, &freeSpaceOffset, sizeof(int));
+    memcpy (&freeSpaceOffset, (char*)page + 5, sizeof(int));
     free (page);
     return PAGE_SIZE - freeSpaceOffset;
 }
