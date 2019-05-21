@@ -624,10 +624,24 @@ void IndexManager::pushTrafficCopUp (IXFileHandle &ixfileHandle, void *key, Attr
         // check if key less than middle key to determine where key belongs
         // left page or the split page
         int condition = 0;
-        void *compKey = malloc (middleKeyLen - 4); // remove page pointer; only grab key
-        memcpy (compKey, (char*)middleKey, middleKeyLen - 4);
-        condition = checkCondition (key, compKey); // check if key less than middle
-        free (compKey);
+        void *midKey = malloc (middleKeyLen - 4); // exclude page pointer
+        memcpy (midKey, middleKey, middleKeyLen - 4);
+
+        if (attr.type == TypeVarChar) {
+            condition = checkCondition (key, midKey);   
+        }
+        else if (attr.type == TypeInt) {
+            int intKey = 0;
+            memcpy (&intKey, key, sizeof(int));
+            condition = checkCondition (intKey, midKey);
+        }
+        else { // TypeReal
+            float floatKey = 0;
+            memcpy (&floatKey, key, sizeof(float));
+            condition = checkCondition (floatKey, midKey);
+        }
+
+        free (midKey);
 
         // set up the split page; copy over second half over to split page
         int splitPageNum = ixfileHandle.getNumberOfPages();
@@ -686,6 +700,7 @@ void IndexManager::pushTrafficCopUp (IXFileHandle &ixfileHandle, void *key, Attr
         // key size passed in = PAGE_SIZE
         // so copy over middle key to key
         // and free allocated mem for middle key
+        // key now middle key that needs to be pushed up
         memcpy (key, middleKey, middleKeyLen - 4);
         free (middleKey);
 
@@ -738,8 +753,8 @@ void IndexManager::pushTrafficCopUp (IXFileHandle &ixfileHandle, void *key, Attr
 // helpers for pushTrafficCopUp *
 // * * * * * * * * * * * * * * *
 int IndexManager::getKeySize (void *key, Attribute attr) {
-    int keySize = sizeof(int);
-    if (attr.type != TypeVarChar) {
+    int keySize = sizeof(int); // works for both int and float since size is 4
+    if (attr.type == TypeVarChar) {
         int length = 0;
         memcpy (&length, key, sizeof(int));
         keySize += length;
@@ -767,36 +782,49 @@ void IndexManager::insertIntoInternal (void *page, void *key, Attribute attr, in
         if (attr.type == TypeVarChar) {
             int length = 0;
             memcpy (&length, (char*)page + offset, sizeof(int));
-            void *compKey = malloc (sizeof(int) + length);
-            memcpy (compKey, (char*)page + offset, sizeof(int) + length);
-            condition = checkCondition (compKey, key);
+            void *innerKey = malloc (sizeof(int) + length);
+            memcpy (innerKey, (char*)page + offset, sizeof(int) + length);
+
+            condition = checkCondition (key, innerKey);
             if (condition == LESSTHAN) {
-                free (compKey);
+                free (innerKey);
                 found = true;
                 break;
             }
             offset += sizeof(int) + length + sizeof(int); // length + string + pagePointer
-            free (compKey);
+            free (innerKey);
         }
         else if (attr.type == TypeInt) {
-            int compKey = 0;
-            memcpy (&compKey, (char*)page + offset, sizeof(int));
-            condition = checkCondition (compKey, key);
+            void *innerKey = malloc (sizeof(int));
+            memcpy (innerKey, (char*)page + offset, sizeof(int));
+
+            int intKey = 0;
+            memcpy (&intKey, key, sizeof(int));
+
+            condition = checkCondition (intKey, innerKey);
             if (condition == LESSTHAN) {
+                free (innerKey);
                 found = true;
                 break;
             }
             offset += sizeof(int) + sizeof(int); // key + pagePointer
+            free (innerKey);
         }
         else {
-            float compKey = 0;
-            memcpy (&compKey, (char*)page + offset, sizeof(float));
-            condition = checkCondition (compKey, key);
+            void *innerKey = malloc (sizeof(float));
+            memcpy (innerKey, (char*)page + offset, sizeof(float));
+
+            float floatKey = 0;
+            memcpy (&floatKey, key, sizeof(float));
+
+            condition = checkCondition (floatKey, innerKey);
             if (condition == LESSTHAN) {
+                free (innerKey);
                 found = true;
                 break;
             }
             offset += sizeof(float) + sizeof(int); // key + pagePointer
+            free (innerKey);
         }
     }
 
@@ -811,15 +839,20 @@ void IndexManager::insertIntoInternal (void *page, void *key, Attribute attr, in
     else { // move stuff back to make space for new entry
         int shiftSize = freeSpaceOffset - offset;
         void *shift = malloc (shiftSize);
+        // copy shift entries in shift
         memcpy(shift, (char*)page + offset, shiftSize);
+        // place key in correct location
         memcpy ((char*)page + offset, key, keySize);
         offset += keySize;
+        // place childPage pointer after key
         memcpy ((char*)page + offset, &childPage, sizeof(int));
         offset += sizeof(int);
 
+        // place shifted entries back in page after key + pagePointer
         memcpy((char*)page + offset, shift, shiftSize);
         offset += shiftSize;
 
+        // update freeSpaceOffset
         memcpy ((char*)page + 5, &offset, sizeof(int));
         free (shift);
     }
