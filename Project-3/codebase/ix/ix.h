@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <cstring>
+#include <iostream>
 
 #include "../rbf/rbfm.h"
 
@@ -15,6 +16,7 @@
 # define LESSTHAN (3)
 # define GREATERTHANOREQUAL (2)
 # define EQUAL (1)
+# define ZERO 0
 
 class IX_ScanIterator;
 class IXFileHandle;
@@ -70,6 +72,7 @@ class IndexManager {
                 bool highKeyInclusive,
                 IX_ScanIterator &ix_ScanIterator);
 
+        void printRecursive(IXFileHandle &ixfileHandle, const Attribute &att, int pageNum, int tabs) const;
         // Print the B+ tree in pre-order (in a JSON record format)
         void printBtree(IXFileHandle &ixfileHandle, const Attribute &attribute) const;
 
