@@ -477,6 +477,15 @@ void IndexManager::splitLeaf(IXFileHandle &ixfileHandle, PageNum pageID, const v
         }
         offset += numberOfRIDs * 2 * sizeof(int); // skipping the rids
     }
+    //Want to get the key that will be at the beginning of the new page.
+    if(att.type == TypeVarChar){
+        memcpy(&length, (char*)page + offset, sizeof(int));
+        memcpy(keyAtSplit, (char*)page + offset, sizeof(int) + length); //info for traffic cop
+    }
+    else {
+        memcpy(keyAtSplit, (char*)page + offset, sizeof(int)); //info for traffic cop
+    }
+
     
     /////////////////////////////////////////////////////////////////////////////////////
 
@@ -524,6 +533,8 @@ void IndexManager::splitLeaf(IXFileHandle &ixfileHandle, PageNum pageID, const v
 
     ixfileHandle.writePage(pageID, page);
     ixfileHandle.appendPage(newPage); 
+
+
 
     /////////////////////////////////////////////////////////////////////////////////////
     //insert key into the correct page
