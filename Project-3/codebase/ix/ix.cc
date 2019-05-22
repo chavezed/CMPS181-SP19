@@ -479,11 +479,11 @@ void IndexManager::splitLeaf(IXFileHandle &ixfileHandle, PageNum pageID, const v
     }
     //Want to get the key that will be at the beginning of the new page.
     if(att.type == TypeVarChar){
-        memcpy(&length, (char*)page + offset, sizeof(int));
-        memcpy(keyAtSplit, (char*)page + offset, sizeof(int) + length); //info for traffic cop
+        memcpy(&length, (char*)page + offset + sizeof(int), sizeof(int));
+        memcpy(keyAtSplit, (char*)page + offset + sizeof(int), sizeof(int) + length); //info for traffic cop
     }
     else {
-        memcpy(keyAtSplit, (char*)page + offset, sizeof(int)); //info for traffic cop
+        memcpy(keyAtSplit, (char*)page + offset + sizeof(int), sizeof(int)); //info for traffic cop
     }
 
     
@@ -784,7 +784,7 @@ int IndexManager::getKeySize (void *key, Attribute attr) {
     int keySize = sizeof(int); // works for both int and float since size is 4
     if (attr.type == TypeVarChar) {
         int length = 0;
-        memcpy (&length, key, sizeof(int));
+        memcpy (&length, (char*)key, sizeof(int));
         keySize += length;
     }
     return keySize;
