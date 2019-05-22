@@ -1,4 +1,4 @@
-#include <iostream>
+ #include <iostream>
 
 #include <cstdlib>
 #include <cstdio>
@@ -35,7 +35,7 @@ int testCase_extra_2(const string &indexFileName,
     RID rid;
     IXFileHandle ixfileHandle;
     IX_ScanIterator ix_ScanIterator;
-    unsigned numOfTuples = 13;
+    unsigned numOfTuples = 20;
     char key[PAGE_SIZE];
     unsigned count = attribute.length;
 
@@ -51,6 +51,7 @@ int testCase_extra_2(const string &indexFileName,
     unsigned i = 1;
     for(; i <= numOfTuples; i++)
     {
+        cerr << "entry: " << i << endl;
         prepareKeyAndRid(count, i, key, rid);
 
         rc = indexManager->insertEntry(ixfileHandle, attribute, &key, rid);

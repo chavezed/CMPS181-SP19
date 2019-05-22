@@ -31,7 +31,7 @@ RC IndexManager::createFile(const string &fileName)
     int offsetLeaf = 13;// char indicator + parent pointer + back pointer + forward pointer
     int freeSpaceRoot = 9;//char indicator + empty parent pointer + freespace pointer
     int freeSpaceLeaf = 17;// char indicator + parent pointer + back pointer + forward pointer + freespace pointer
-
+    int forwardAndBack = -1;
     if(_pf_manager->createFile(fileName) != 0){
         free(rootPage);
         free(leafPage);
@@ -42,6 +42,13 @@ RC IndexManager::createFile(const string &fileName)
     memset(leafPage,0,PAGE_SIZE);
     memcpy((char*)rootPage, &rootChar, sizeof(char));
     memcpy((char*)leafPage, &leafChar, sizeof(char));
+
+    //init foward and back to -1
+    memcpy((char*)rootPage + 5, &forwardAndBack, sizeof(int)); 
+    memcpy((char*)leafPage + 5, &forwardAndBack, sizeof(int));
+    memcpy((char*)rootPage + 9, &forwardAndBack, sizeof(int));
+    memcpy((char*)leafPage + 9, &forwardAndBack, sizeof(int));
+
     memcpy((char*)rootPage+offsetRoot, &freeSpaceRoot, sizeof(int)); //placing free space pointer
     memcpy((char*)leafPage+offsetLeaf, &freeSpaceLeaf, sizeof(int)); //placing free space pointer
     //parent of leaf is root which is page zero at the moment.
@@ -157,7 +164,7 @@ RC IndexManager::checkCondition(void *checkString, const void *value){
 RC IndexManager::findLeaf(IXFileHandle &ixfileHandle, const Attribute att, int &pageNum, const void* val){
     void* page = malloc(PAGE_SIZE);
     ixfileHandle.readPage(ixfileHandle.rootPageNum, page);
-    int offset = 9; //start of free space
+    int offset = 9; //start of data
     int freeSpace = 0;
     char indicator = ROOT_CHAR;
     RC condition = 0;
@@ -166,7 +173,7 @@ RC IndexManager::findLeaf(IXFileHandle &ixfileHandle, const Attribute att, int &
     memset(key, 0, PAGE_SIZE);
     int length = 0; // used to find length of char.
 
-    memcpy(&freeSpace, (char*)page+5, sizeof(int));//5 because char indicator then parent pointer then freespace poiner
+    memcpy(&freeSpace, (char*)page+5, sizeof(int));//5 because char indicator then parent pointer then freespace pointer
 
     while(indicator != LEAF_CHAR){ //loops through pages
 
@@ -179,7 +186,7 @@ RC IndexManager::findLeaf(IXFileHandle &ixfileHandle, const Attribute att, int &
             continue;
         }
 
-        while(freeSpace > offset && condition){ // loops through keys in page
+        while(freeSpace > offset){ // loops through keys in page
             memcpy(&nextPage, (char*)page+offset, sizeof(int));
             offset += sizeof(int);
             if(att.type == TypeVarChar){
@@ -188,8 +195,8 @@ RC IndexManager::findLeaf(IXFileHandle &ixfileHandle, const Attribute att, int &
                 
                 condition = checkCondition(key,val); // returns bool
 
-                if(condition == LESSTHAN){//if key < val then go to next page.
-                    ixfileHandle.readPage(ixfileHandle.rootPageNum, page);
+                if(condition == GREATERTHANOREQUAL){//if key >= val then go to next page.
+                    ixfileHandle.readPage(nextPage, page);
                     pageNum = nextPage;
                     memset(key, 0, PAGE_SIZE);
                     offset = 9;
@@ -197,10 +204,10 @@ RC IndexManager::findLeaf(IXFileHandle &ixfileHandle, const Attribute att, int &
                     memcpy(&indicator, (char*)page, sizeof(char));
                     break;
                 }
-                else if (freeSpace == (int)(offset + sizeof(int) + length)){// case where val is greater than last key on the page. 
+                else if (freeSpace == (int)(offset + 2 * sizeof(int) + length)){// case where val is greater than last key on the page. 
                     memcpy((char*)page+offset, val, sizeof(int) + length);//dethrone last greatest key and try to place val in the leaf page
                     pageNum = nextPage;
-                    ixfileHandle.readPage(ixfileHandle.rootPageNum, page);
+                    ixfileHandle.readPage(nextPage, page);
                     memset(key, 0, PAGE_SIZE);
                     offset = 9;
                     memcpy(&freeSpace, (char*)page+5, sizeof(int));
@@ -208,15 +215,15 @@ RC IndexManager::findLeaf(IXFileHandle &ixfileHandle, const Attribute att, int &
                     break;
                 }
                 else {//go to the next key in the interior page.
-                    offset += (sizeof(int) + length);
+                    offset += sizeof(int) + length; // key = (int)length + the size of the key which is length
                 }
             }
             else if(att.type == TypeReal){
                 float floatKey= 0;
                 memcpy(&floatKey, key, sizeof(float));
                 condition = checkCondition(floatKey,val);
-                if(condition == LESSTHAN){//if false then go to next page.
-                    ixfileHandle.readPage(ixfileHandle.rootPageNum, page);
+                if(condition == GREATERTHANOREQUAL){//if false then go to next page.
+                    ixfileHandle.readPage(nextPage, page);
                     pageNum = nextPage;
                     memset(key, 0, PAGE_SIZE);
                     offset = 9;
@@ -227,7 +234,7 @@ RC IndexManager::findLeaf(IXFileHandle &ixfileHandle, const Attribute att, int &
                 else if (freeSpace == (int)(offset + sizeof(int) + length)){// case where val is greater than last key on the page. 
                     memcpy((char*)page+offset, val, sizeof(int));//dethrone last greatest key and try to place val in the leaf page
                     pageNum = nextPage;
-                    ixfileHandle.readPage(ixfileHandle.rootPageNum, page);
+                    ixfileHandle.readPage(nextPage, page);
                     memset(key, 0, PAGE_SIZE);
                     offset = 9;
                     memcpy(&freeSpace, (char*)page+5, sizeof(int));
@@ -243,8 +250,8 @@ RC IndexManager::findLeaf(IXFileHandle &ixfileHandle, const Attribute att, int &
                 memcpy(&intKey, key, sizeof(int));
                 condition = checkCondition(intKey,val);
 
-                if(condition == LESSTHAN){//if false then go to next page.
-                    ixfileHandle.readPage(ixfileHandle.rootPageNum, page);
+                if(condition == GREATERTHANOREQUAL){//if false then go to next page.
+                    ixfileHandle.readPage(nextPage, page);
                     pageNum = nextPage;
                     memset(key, 0, PAGE_SIZE);
                     offset = 9;
@@ -255,7 +262,7 @@ RC IndexManager::findLeaf(IXFileHandle &ixfileHandle, const Attribute att, int &
                 else if (freeSpace == (int)(offset + sizeof(int) + length)){// case where val is greater than last key on the page. 
                     memcpy((char*)page+offset, val, sizeof(int));//dethrone last greatest key and try to place val in the leaf page
                     pageNum = nextPage;
-                    ixfileHandle.readPage(ixfileHandle.rootPageNum, page);
+                    ixfileHandle.readPage(nextPage, page);
                     memset(key, 0, PAGE_SIZE);
                     offset = 9;
                     memcpy(&freeSpace, (char*)page+5, sizeof(int));
@@ -275,18 +282,19 @@ RC IndexManager::findLeaf(IXFileHandle &ixfileHandle, const Attribute att, int &
 
 bool IndexManager::isSpaceLeaf(IXFileHandle &ixfileHandle, const PageNum pageNum, const Attribute att, const void* val){
     void* page = malloc(PAGE_SIZE);
+    ixfileHandle.readPage(pageNum, page);
     int freeOffset = 0;
     int recordSize = 0;
 
     memcpy(&freeOffset, (char *)page + 13, sizeof(int));
 
     if(att.type != TypeVarChar){
-        recordSize = sizeof(int) * 3; // key + rid.slotnumber + rid.pageNum
+        recordSize = sizeof(int) * 4; // key + rid.slotnumber + rid.pageNum + numberOfRecords
     }
     else {
         int length = 0;
         memcpy(&length, (char *)val, sizeof(int));
-        recordSize = sizeof(int) * 3 + length; // rid.slotnumber + rid.pageNum + key.length + key
+        recordSize = sizeof(int) * 4 + length; // rid.slotnumber + rid.pageNum + key.length + numberOfRecords + key 
     }
 
     free(page);
@@ -387,7 +395,7 @@ void IndexManager::insertToLeafSorted(IXFileHandle &ixfileHandle, const Attribut
             memcpy(compKey, (char *) page + offset + sizeof(int), length + sizeof(int)); // get lenght of key and key
 
             condition = checkCondition(compKey, key);
-            if(condition == LESSTHAN){
+            if(condition != LESSTHAN){
                 break;
             }
             offset += recordSize;
@@ -395,12 +403,12 @@ void IndexManager::insertToLeafSorted(IXFileHandle &ixfileHandle, const Attribut
         free(compKey);
     }
 
-    int sizeofShift = freeOffset - offset + recordSize;
+    int sizeofShift = freeOffset - offset;
     void * shift = malloc(sizeofShift);
     memset(shift, 0, sizeofShift);
 
     //shift gets from end of compKey to free space offset.
-    memcpy(shift, (char*)page + offset + recordSize, sizeofShift);
+    memcpy(shift, (char*)page + offset, sizeofShift);
 
     //inserting key at correct spot.
     if(condition == EQUAL){
@@ -415,7 +423,6 @@ void IndexManager::insertToLeafSorted(IXFileHandle &ixfileHandle, const Attribut
 
     }
     else{
-        offset += recordSize;
         numberOfRIDs = 1; //reusing this for new record.
         memcpy((char*)page + offset, &numberOfRIDs, sizeof(int));
         offset += sizeof(int);
@@ -438,6 +445,7 @@ void IndexManager::insertToLeafSorted(IXFileHandle &ixfileHandle, const Attribut
     }
     //inserting shift after key
     memcpy((char*)page + offset, shift, sizeofShift);
+    memcpy((char*)page + 13, &offset, sizeof(int));
     ixfileHandle.writePage(pageID, page);
 }
 
@@ -467,7 +475,7 @@ void IndexManager::splitLeaf(IXFileHandle &ixfileHandle, PageNum pageID, const v
             memcpy(keyAtSplit, (char*)page + offset, sizeof(int)); //info for traffic cop
             offset += sizeof(int);
         }
-
+        offset += numberOfRIDs * 2 * sizeof(int); // skipping the rids
     }
     
     /////////////////////////////////////////////////////////////////////////////////////
@@ -497,7 +505,7 @@ void IndexManager::splitLeaf(IXFileHandle &ixfileHandle, PageNum pageID, const v
     memcpy(&forwardPage, (char*)page + newPageOffset, sizeof(int));
     memcpy((char*)newPage + newPageOffset, &forwardPage, sizeof(int));
 
-    forwardPage = ixfileHandle.getNumberOfPages() + 1;
+    forwardPage = ixfileHandle.getNumberOfPages();
     memcpy((char*)page + newPageOffset, &forwardPage, sizeof(int));
     newPageOffset += sizeof(int);
 
@@ -506,9 +514,15 @@ void IndexManager::splitLeaf(IXFileHandle &ixfileHandle, PageNum pageID, const v
     memcpy((char*)newPage + newPageOffset, &newPageFreeSpace, sizeof(int));
     newPageOffset += sizeof(int);
 
+    //setting old page freeSpaceOffset to correct size.
+    memcpy((char*)page + 13, &offset, sizeof(int));
+
     //getting half of entries from old page and putting it in new page.
     memcpy((char*)newPage + newPageOffset, (char*)page + offset, (freeOffset - offset));
 
+    memset((char*)page + offset, 0, (freeOffset - offset));
+
+    ixfileHandle.writePage(pageID, page);
     ixfileHandle.appendPage(newPage); 
 
     /////////////////////////////////////////////////////////////////////////////////////
@@ -518,7 +532,7 @@ void IndexManager::splitLeaf(IXFileHandle &ixfileHandle, PageNum pageID, const v
             insertToLeafSorted(ixfileHandle, att, key, rid, pageID);
         }
         else{
-            insertToLeafSorted(ixfileHandle, att, key, rid, ixfileHandle.getNumberOfPages());
+            insertToLeafSorted(ixfileHandle, att, key, rid, ixfileHandle.getNumberOfPages() - 1);
         }
     }
     else if(att.type == TypeInt){
@@ -528,7 +542,7 @@ void IndexManager::splitLeaf(IXFileHandle &ixfileHandle, PageNum pageID, const v
             insertToLeafSorted(ixfileHandle, att, key, rid, pageID);
         }
         else{
-            insertToLeafSorted(ixfileHandle, att, key, rid, ixfileHandle.getNumberOfPages());
+            insertToLeafSorted(ixfileHandle, att, key, rid, ixfileHandle.getNumberOfPages() - 1);
         }
     }
     else {
@@ -538,11 +552,13 @@ void IndexManager::splitLeaf(IXFileHandle &ixfileHandle, PageNum pageID, const v
             insertToLeafSorted(ixfileHandle, att, key, rid, pageID);
         }
         else{
-            insertToLeafSorted(ixfileHandle, att, key, rid, ixfileHandle.getNumberOfPages());
+            insertToLeafSorted(ixfileHandle, att, key, rid, ixfileHandle.getNumberOfPages() - 1);
         }
     } 
 
     //Put traffic cop up here:
+
+    pushTrafficCopUp(ixfileHandle, keyAtSplit, att, parent, (int)ixfileHandle.getNumberOfPages() - 1);
 
     free(page);
     free(keyAtSplit);
@@ -551,7 +567,6 @@ void IndexManager::splitLeaf(IXFileHandle &ixfileHandle, PageNum pageID, const v
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * 
 // start of push traffic cop up
-
 void IndexManager::pushTrafficCopUp (IXFileHandle &ixfileHandle, void *key, Attribute attr, int pageNum, int childPage) {
     int freeSpace = getPageFreeSpace (pageNum, ixfileHandle);
     int keySize = getKeySize (key, attr);
@@ -648,6 +663,7 @@ void IndexManager::pushTrafficCopUp (IXFileHandle &ixfileHandle, void *key, Attr
         int splitPageNum = ixfileHandle.getNumberOfPages();
 
         void *splitPage = malloc (PAGE_SIZE);
+        memset(splitPage, 0, PAGE_SIZE);
         // insert page type
         char indicator = INTERNAL_CHAR;
         memcpy(splitPage, &indicator, sizeof(char));
