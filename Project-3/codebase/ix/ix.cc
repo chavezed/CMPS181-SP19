@@ -1,6 +1,6 @@
 
 #include "ix.h"
-#include <iostream>
+
 
 IndexManager* IndexManager::_index_manager = 0;
 PagedFileManager *IndexManager::_pf_manager = NULL;
@@ -44,9 +44,8 @@ RC IndexManager::createFile(const string &fileName)
     memcpy((char*)leafPage, &leafChar, sizeof(char));
 
     //init foward and back to -1
-    memcpy((char*)rootPage + 5, &forwardAndBack, sizeof(int)); 
+    memcpy((char*)rootPage + 1, &forwardAndBack, sizeof(int)); 
     memcpy((char*)leafPage + 5, &forwardAndBack, sizeof(int));
-    memcpy((char*)rootPage + 9, &forwardAndBack, sizeof(int));
     memcpy((char*)leafPage + 9, &forwardAndBack, sizeof(int));
 
     memcpy((char*)rootPage+offsetRoot, &freeSpaceRoot, sizeof(int)); //placing free space pointer
@@ -904,7 +903,179 @@ RC IndexManager::insertEntry(IXFileHandle &ixfileHandle, const Attribute &attrib
 
 RC IndexManager::deleteEntry(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid)
 {
+    void* page = malloc(PAGE_SIZE);
+    memset(page, 0, PAGE_SIZE);
+    int pageNum = 0;
+    int freeSpace = 0;
+    int offset = 13; 
+
+    findLeaf(ixfileHandle, attribute, pageNum, key);
+    ixfileHandle.readPage(pageNum, page);
+
+    memcpy(&freeSpace, (char*)page + offset, sizeof(int));
+    offset += sizeof(int);
+
+    int numRIDs = 0;
+    void* shift = malloc(PAGE_SIZE);
+    memset(shift, 0, PAGE_SIZE);
+    void* compKey = malloc(PAGE_SIZE);
+    memset(compKey, 0, PAGE_SIZE);
+    float compFloatKey = 0;
+    int compIntKey = 0;
+    int ridPageNum = 0;
+    int ridSlotNum = 0;
+
+    while(offset < freeSpace){
+        memcpy(&numRIDs, (char*)page + offset, sizeof(int));
+        offset += sizeof(int);
+
+        if(attribute.type == TypeVarChar){
+            int length = 0;
+            memcpy(&length, (char*)page + offset, sizeof(int));
+            memcpy((char*)compKey, (char*)page + offset, sizeof(int) + length);
+            offset += sizeof(int) + length;
+            RC condition = checkCondition(compKey, key);
+
+            if(condition == EQUAL && numRIDs > 1){
+
+                for(int i = 0; i < numRIDs; i++){
+                    memcpy(&ridPageNum, (char*)page + offset, sizeof(int));
+                    memcpy(&ridSlotNum, (char*)page + offset + sizeof(int), sizeof(int));
+
+                    if(rid.slotNum == ridSlotNum && rid.pageNum == ridPageNum){
+                        int sizeofShift = freeSpace - (offset + 2 * sizeof(int));
+                        memcpy((char*)shift, (char*)page + offset + 2 * sizeof(int), sizeofShift);
+                        memcpy((char*)page + offset, (char*)shift, sizeofShift);
+                        freeSpace -= 2 * sizeof(int);
+                        memcpy((char*)page + 13, &freeSpace, sizeof(int));
+                        ixfileHandle.writePage(pageNum, page);
+                        free(compKey);
+                        free(shift);
+                        free(page);
+                        return SUCCESS;
+                    }
+                    else{
+                        offset += 2 * sizeof(int);
+                    }
+                }
+            }
+            else if(condition == EQUAL && numRIDs == 1){
+                int recordSize = length + 4 * sizeof(int);
+                offset -= (length + 2 * sizeof(int));
+                int sizeofShift = freeSpace - (offset + recordSize); 
+                memcpy((char*)shift, (char*)page + offset + recordSize, sizeofShift);
+                memcpy((char*)page + offset, (char*)shift, sizeofShift);
+                freeSpace -= recordSize;
+                memcpy((char*)page + 13, &freeSpace, sizeof(int));
+                ixfileHandle.writePage(pageNum, page);
+                free(compKey);
+                free(shift);
+                free(page);
+                return SUCCESS;
+            }
+            else{
+                offset += numRIDs * 2 * sizeof(int);
+            }
+        }
+        else if(attribute.type == TypeReal){
+            memcpy(&compFloatKey, (char*)page + offset, sizeof(int));
+            offset += sizeof(int);
+
+            RC condition = checkCondition(compFloatKey, key);
+
+            if(condition == EQUAL && numRIDs > 1){
+
+                for(int i = 0; i < numRIDs; i++){
+                    memcpy(&ridPageNum, (char*)page + offset, sizeof(int));
+                    memcpy(&ridSlotNum, (char*)page + offset + sizeof(int), sizeof(int));
+
+                    if(rid.slotNum == ridSlotNum && rid.pageNum == ridPageNum){
+                        int sizeofShift = freeSpace - (offset + 2 * sizeof(int));
+                        memcpy((char*)shift, (char*)page + offset + 2 * sizeof(int), sizeofShift);
+                        memcpy((char*)page + offset, (char*)shift, sizeofShift);
+                        freeSpace -= 2 * sizeof(int);
+                        memcpy((char*)page + 13, &freeSpace, sizeof(int));
+                        ixfileHandle.writePage(pageNum, page);
+                        free(compKey);
+                        free(shift);
+                        free(page);
+                        return SUCCESS;
+                    }
+                    else{
+                        offset += 2 * sizeof(int);
+                    }
+                }
+
+            }
+            else if(condition == EQUAL && numRIDs == 1){
+                int recordSize = 4 * sizeof(int);
+                offset -= (2 * sizeof(int));
+                int sizeofShift = freeSpace - (offset + recordSize); 
+                memcpy((char*)shift, (char*)page + offset + recordSize, sizeofShift);
+                memcpy((char*)page + offset, (char*)shift, sizeofShift);
+                freeSpace -= recordSize;
+                memcpy((char*)page + 13, &freeSpace, sizeof(int));
+                ixfileHandle.writePage(pageNum, page);
+                free(compKey);
+                free(shift);
+                free(page);
+                return SUCCESS;
+            }
+            else{
+                offset += numRIDs * 2 * sizeof(int);
+            }
+
+        }
+        else {
+            memcpy(&compIntKey, (char*)page + offset, sizeof(int));
+            offset += sizeof(int);
+            RC condition = checkCondition(compIntKey, key);
+            if(condition == EQUAL && numRIDs > 1){
+
+                for(int i = 0; i < numRIDs; i++){
+                    memcpy(&ridPageNum, (char*)page + offset, sizeof(int));
+                    memcpy(&ridSlotNum, (char*)page + offset + sizeof(int), sizeof(int));
+
+                    if(rid.slotNum == ridSlotNum && rid.pageNum == ridPageNum){
+                        int sizeofShift = freeSpace - (offset + 2 * sizeof(int));
+                        memcpy((char*)shift, (char*)page + offset + 2 * sizeof(int), sizeofShift);
+                        memcpy((char*)page + offset, (char*)shift, sizeofShift);
+                        freeSpace -= 2 * sizeof(int);
+                        memcpy((char*)page + 13, &freeSpace, sizeof(int));
+                        ixfileHandle.writePage(pageNum, page);
+                        free(compKey);
+                        free(shift);
+                        free(page);
+                        return SUCCESS;
+                    }
+                    else{
+                        offset += 2 * sizeof(int);
+                    }
+                }
+
+            }
+            else if(condition == EQUAL && numRIDs == 1){
+                int recordSize = 4 * sizeof(int);
+                offset -= (2 * sizeof(int));
+                int sizeofShift = freeSpace - (offset + recordSize); 
+                memcpy((char*)shift, (char*)page + offset + recordSize, sizeofShift);
+                memcpy((char*)page + offset, (char*)shift, sizeofShift);
+                freeSpace -= recordSize;
+                memcpy((char*)page + 13, &freeSpace, sizeof(int));
+                ixfileHandle.writePage(pageNum, page);
+                free(compKey);
+                free(shift);
+                free(page);
+                return SUCCESS;
+            }
+            else{
+                offset += numRIDs * 2 * sizeof(int);
+            }
+        }
+
+    }
     return -1;
+
 }
 
 
@@ -1142,6 +1313,7 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
 void IndexManager::printBtree(IXFileHandle &ixfileHandle, const Attribute &attribute) const {
     printRecursive(ixfileHandle, attribute, ixfileHandle.rootPageNum, ZERO);
 }
+
 
 IX_ScanIterator::IX_ScanIterator()
 {
