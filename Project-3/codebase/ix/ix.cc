@@ -1,6 +1,6 @@
 
 #include "ix.h"
-
+#include <iostream>
 
 IndexManager* IndexManager::_index_manager = 0;
 PagedFileManager *IndexManager::_pf_manager = NULL;
@@ -921,11 +921,15 @@ RC IndexManager::scan(IXFileHandle &ixfileHandle,
 
 void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &att, int pageNum, int tabs) const{
     // set tabs length
-    char tempSpaces[tabs*4 + 1];
-    memset(tempSpaces, ' ', tabs*4);
-    tempSpaces[tabs*4+ 1] = '\0';
-    string spaces=string(tempSpaces);
-
+    string spaces;
+    if(tabs != 0){
+        char tempSpaces[tabs*4 + 1];
+        memset(tempSpaces, ' ', tabs*4);
+        spaces=string(tempSpaces);
+    }
+    else{
+        spaces = "";
+    }
     void* page = malloc(PAGE_SIZE);
     memset((char*)page, 0, PAGE_SIZE);
     ixfileHandle.readPage(pageNum,page);
@@ -946,97 +950,90 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
         memcpy(&freeSpaceOffset, (char*)page + offset, sizeof(int));
         offset += sizeof(int);
         int numRIDs = 0;
-
+        cout << spaces << "{\"keys\":[";
         while(offset < freeSpaceOffset){
             memcpy(&numRIDs, (char*)page + offset , sizeof(int));
             offset += sizeof(int);
+            int ridPageNum = 0;
+            int ridSlotNum = 0;
             if(att.type == TypeVarChar){
-                cout << spaces << "{\"keys\":[";
-                while(offset < freeSpaceOffset){
-                    int keySize=0;
-                    int numKeys = 0;
-                    memcpy(&numKeys, (char*)page + offset, sizeof(int));
+                int keyLength = 0;
+                memcpy(&keyLength, (char*)page+offset, sizeof(int));
+                char keyVal[keyLength+1];
+                offset += sizeof(int);
+                memcpy(&keyVal, (char*)page+offset, keyLength);
+                char tempKeyVal[10];
+                memcpy(&tempKeyVal, (char*)page+offset,10);
+                offset += keyLength;
+                // for readablility printing only first 10 chars
+                cout << "\"[";
+                cout << tempKeyVal<<flush;
+                cout << ":";
+                // cout << "\"[" << keyVal << ":";
+                // print rid's
+                for(int i=0; i<numRIDs;i++){
+                    memcpy(&ridPageNum,(char*)page+offset,sizeof(int));
                     offset += sizeof(int);
-                    memcpy(&keySize, (char*)page + offset, sizeof(int));
+                    memcpy(&ridSlotNum,(char*)page+offset,sizeof(int));
                     offset += sizeof(int);
-                    string stringkeyVal[keySize];
-                    memcpy(&stringkeyVal, (char*)page + offset, keySize);
-                    offset += keySize;
-                    cout<<"\""<<stringkeyVal<<"\":[";
-                    
-                    for(int i=0; i<numKeys; i++){
-                        int ridPageNum=0;
-                        int ridSlotNum=0;
-                        memcpy(&ridPageNum,(char*)page + offset, sizeof(int));
-                        offset += sizeof(int);
-                        memcpy(&ridSlotNum,(char*)page + offset, sizeof(int));
-                        offset += sizeof(int);
-                        cout<<"("<<ridPageNum<<","<<ridSlotNum<<")";
-                        if((i+1)<numKeys)
-                            cout<<",";
+                    cout<<"("<<ridPageNum<<","<<ridSlotNum<<")";
+                    if(i+1 < numRIDs){
+                        cout<<",";
                     }
+                }
+                cout << "]\"";
+                if(offset<freeSpaceOffset){
+                    cout<<",";
+                }
+                else{
                     cout<<"]}";
-                    if(offset < freeSpaceOffset)
-                        cout<<",\n";
-                    else cout<<"\n";
                 }  
             }
             else if(att.type == TypeReal){
-                cout << spaces << "{\"keys\":[";
-                while(offset < freeSpaceOffset){
-                    int numKeys = 0;
-                    memcpy(&numKeys, (char*)page + offset, sizeof(int));
+                float keyVal = 0;
+                memcpy(&keyVal, (char*)page+offset, sizeof(float));
+                offset += sizeof(float);
+                cout << "\"[" << keyVal << ":" << "[";
+                for(int i=0; i<numRIDs;i++){
+                    memcpy(&ridPageNum,(char*)page+offset,sizeof(int));
                     offset += sizeof(int);
-                    float keyVal=0;
-                    memcpy(&keyVal, (char*)page + offset, sizeof(float));
-                    offset += sizeof(float);
-                    cout<<"\""<<keyVal<<"\":[";
-                    
-                    for(int i=0; i<numKeys; i++){
-                        int ridPageNum=0;
-                        int ridSlotNum=0;
-                        memcpy(&ridPageNum,(char*)page + offset, sizeof(int));
-                        offset += sizeof(int);
-                        memcpy(&ridSlotNum,(char*)page + offset, sizeof(int));
-                        offset += sizeof(int);
-                        cout<<"("<<ridPageNum<<","<<ridSlotNum<<")";
-                        if((i+1)<numKeys)
-                            cout<<",";
+                    memcpy(&ridSlotNum,(char*)page+offset,sizeof(int));
+                    offset += sizeof(int);
+                    cout<<"("<<ridPageNum<<","<<ridSlotNum<<")";
+                    if(i+1 < numRIDs){
+                        cout<<",";
                     }
-                    cout<<"]}";
-                    if(offset < freeSpaceOffset)
-                        cout<<",\n";
-                    else cout<<"\n";
                 }
+                cout << "]\"";
+                if(offset<freeSpaceOffset){
+                    cout<<",";
+                }
+                else{
+                    cout<<"]}";
+                } 
             }
             else{
-                cout << spaces << "{\"keys\":[";
-                while(offset < freeSpaceOffset){
-                    int numKeys = 0;
-                    memcpy(&numKeys, (char*)page + offset, sizeof(int));
+                int keyVal = 0;
+                memcpy(&keyVal, (char*)page+offset, sizeof(int));
+                offset += sizeof(int);
+                cout << "\"[" << keyVal << ":" << "[";
+                for(int i=0; i<numRIDs;i++){
+                    memcpy(&ridPageNum,(char*)page+offset,sizeof(int));
                     offset += sizeof(int);
-                    float floatkeyVal=0;
-                    memcpy(&floatkeyVal, (char*)page + offset, sizeof(float));
-                    offset += sizeof(float);
-                    cout<<"\""<<floatkeyVal<<"\":[";
-                    
-                    for(int i=0; i<numKeys; i++){
-                        int ridPageNum=0;
-                        int ridSlotNum=0;
-                        memcpy(&ridPageNum,(char*)page + offset, sizeof(int));
-                        offset += sizeof(int);
-                        memcpy(&ridSlotNum,(char*)page + offset, sizeof(int));
-                        offset += sizeof(int);
-                        cout<<"("<<ridPageNum<<","<<ridSlotNum<<")";
-                        if((i+1)<numKeys)
-                            cout<<",";
+                    memcpy(&ridSlotNum,(char*)page+offset,sizeof(int));
+                    offset += sizeof(int);
+                    cout<<"("<<ridPageNum<<","<<ridSlotNum<<")";
+                    if(i+1 < numRIDs){
+                        cout<<",";
                     }
-                    cout<<"]}";
-                    if(offset < freeSpaceOffset)
-                        cout<<",\n";
-                    else cout<<"\n";
                 }
-
+                cout << "]\"";
+                if(offset<freeSpaceOffset){
+                    cout<<",";
+                }
+                else{
+                    cout<<"]}";
+                }
             }
         }
     }
@@ -1053,15 +1050,19 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
             cout << spaces << "{\"keys\":[";
             while(tempOffset < freeSpaceOffset){
                 int keySize = 0;
-                memcpy(&keySize, (char*)page+offset, sizeof(int));
+                memcpy(&keySize, (char*)page+tempOffset, sizeof(int));
                 tempOffset += sizeof(int);
-                string keyVal[keySize+1];
-                memcpy(&keyVal, (char*)page+offset, keySize);
+                char keyVal[keySize+1];
+                char tempKeyVal[10];
+                memcpy(&keyVal, (char*)page+tempOffset, keySize);
+                memcpy(&tempKeyVal, (char*)page+tempOffset, 10);
                 tempOffset += keySize;
                 tempOffset += sizeof(int);
-                cout<<"\""<<keyVal<<"\"";
-                if(tempOffset<freeSpaceOffset)
-                cout<<",";
+                cout<<"\""<<tempKeyVal<<"\"";
+                // cout<<"\""<<keyVal<<"\"";
+                if(tempOffset < freeSpaceOffset){
+                    cout<<",";
+                }
             }
             cout<<"],\n";
             cout<<spaces<<" \"children\": [\n";
@@ -1087,7 +1088,7 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
             cout << spaces << "{\"keys\":[";
             while(tempOffset < freeSpaceOffset){
                 float key = 0;
-                memcpy(&key, (char*)page+offset, sizeof(int));
+                memcpy(&key, (char*)page+tempOffset, sizeof(int));
                 tempOffset += sizeof(int);
                 tempOffset += sizeof(int);
                 cout<<"\""<<key<<"\"";
@@ -1112,7 +1113,7 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
             cout << spaces << "{\"keys\":[";
             while(tempOffset < freeSpaceOffset){
                 int key = 0;
-                memcpy(&key, (char*)page+offset, sizeof(int));
+                memcpy(&key, (char*)page+tempOffset, sizeof(int));
                 tempOffset += sizeof(int);
                 tempOffset += sizeof(int);
                 cout<<"\""<<key<<"\"";
@@ -1134,6 +1135,7 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
             }
         }
     }
+    cout<<flush;
     free(page);
 }
 
