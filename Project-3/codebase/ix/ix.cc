@@ -446,6 +446,8 @@ void IndexManager::insertToLeafSorted(IXFileHandle &ixfileHandle, const Attribut
     memcpy((char*)page + offset, shift, sizeofShift);
     memcpy((char*)page + 13, &offset, sizeof(int));
     ixfileHandle.writePage(pageID, page);
+    free(shift);
+    free(page);
 }
 
 void IndexManager::splitLeaf(IXFileHandle &ixfileHandle, PageNum pageID, const void * key, const Attribute &att, const RID &rid){
@@ -1138,7 +1140,7 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
                 offset += keyLength;
                 // for readablility printing only first 10 chars
                 cout << "\"[";
-                cout << tempKeyVal<<flush;
+                cout << flush<<tempKeyVal<<flush;
                 cout << ":";
                 // cout << "\"[" << keyVal << ":";
                 // print rid's
@@ -1158,7 +1160,7 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
                 }
                 else{
                     cout<<"]}";
-                }  
+                } 
             }
             else if(att.type == TypeReal){
                 float keyVal = 0;
@@ -1207,6 +1209,8 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
                 }
             }
         }
+        free(page);
+        return;
     }
     else{//non-leaf page
         int freeSpaceOffset = 0;
@@ -1241,9 +1245,9 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
                 int newPageNum = 0;
                 memcpy(&newPageNum, (char*)page+offset, sizeof(int));
                 offset += sizeof(int);
-                printRecursive(ixfileHandle, att, newPageNum, tabs+1);
                 int keySize = 0;
                 memcpy(&keySize, (char*)page+offset, sizeof(int));
+                printRecursive(ixfileHandle, att, newPageNum, tabs+1);
                 offset += sizeof(int);
                 // string keyVal[keySize+1];
                 // memcpy(&keyVal, (char*)page+offset, keySize);
@@ -1253,7 +1257,8 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
                     cout<<",\n";
                 else cout<<"\n";    
             }
-            
+            free(page);
+            return;
         }
         else if(att.type == TypeReal){
             cout << spaces << "{\"keys\":[";
@@ -1279,6 +1284,8 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
                     cout<<",\n";
                 else cout<<"\n";
             }
+            free(page);
+            return;
         }
         else{//TypeInt
             cout << spaces << "{\"keys\":[";
@@ -1304,10 +1311,12 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
                     cout<<",\n";
                 else cout<<"\n";
             }
+            free(page);
+            return;
         }
     }
-    cout<<flush;
-    free(page);
+    // should never reach here
+    // free(page);
 }
 
 void IndexManager::printBtree(IXFileHandle &ixfileHandle, const Attribute &attribute) const {
