@@ -1110,23 +1110,33 @@ void IX_ScanIterator::scanInitialize (IXFileHandle &ixfh, const Attribute &attr,
     this->highKeyInclusive = highKInclusive;
     this->ixfileHandle = ixfh;
 
-    int lowKeyLen = 4;
-    if (attribute.type == TypeVarChar) {
-        int len = 0;
-        memcpy (&len, (char*)lowK, sizeof(int));
-        lowKeyLen += len;
+    if (lowK != NULL) {
+        int lowKeyLen = 4;
+        if (attribute.type == TypeVarChar) {
+            int len = 0;
+            memcpy (&len, (char*)lowK, sizeof(int));
+            lowKeyLen += len;
+        }
+        lowKey = malloc (lowKeyLen);
+        memcpy (lowKey, (char*)lowK, lowKeyLen);
     }
-    lowKey = malloc (lowKeyLen);
-    memcpy (lowKey, lowK, lowKeyLen);
+    else {
+        lowKey = NULL;
+    }
 
-    int highKeyLen = 4;
-    if (attribute.type == TypeVarChar) {
-        int len = 0;
-        memcpy (&len, (char*)highK, sizeof(int));
-        highKeyLen += len;
+    if (highK != NULL) {
+        int highKeyLen = 4;
+        if (attribute.type == TypeVarChar) {
+            int len = 0;
+            memcpy (&len, (char*)highK, sizeof(int));
+            highKeyLen += len;
+        }
+        highKey = malloc (highKeyLen);
+        memcpy (highKey, (char*)highK, highKeyLen);
     }
-    highKey = malloc (highKeyLen);
-    memcpy (highKey, highK, highKeyLen);
+    else {
+        highKey = NULL;
+    }
 
     void *page = malloc (PAGE_SIZE);
     ixfileHandle.readPage (ixfileHandle.rootPageNum, page);
@@ -1156,7 +1166,7 @@ void IX_ScanIterator::scanInitialize (IXFileHandle &ixfh, const Attribute &attr,
                     memcpy (&trafficCopLen, (char*)page + offset, sizeof(int));
                     void *trafficCop = malloc (sizeof(int) + trafficCopLen);
                     memcpy (trafficCop, (char*)page + offset, sizeof(int) + trafficCopLen);
-                    condition = index_manager->checkCondition (lowKey, trafficCop);
+                    condition = checkCondition (lowKey, trafficCop);
                     free (trafficCop);
                     if (condition == LESSTHAN) {
                         break;
@@ -1168,7 +1178,7 @@ void IX_ScanIterator::scanInitialize (IXFileHandle &ixfh, const Attribute &attr,
                     memcpy (&intLowKey, (char*)lowKey, sizeof(int));
                     void *intTrafficCop = malloc (sizeof(int));
                     memcpy (intTrafficCop, (char*)page + offset, sizeof(int));
-                    condition = index_manager->checkCondition (intLowKey, intTrafficCop);
+                    condition = checkCondition (intLowKey, intTrafficCop);
                     free (intTrafficCop);
                     if (condition == LESSTHAN) {  
                         break;
@@ -1180,7 +1190,7 @@ void IX_ScanIterator::scanInitialize (IXFileHandle &ixfh, const Attribute &attr,
                     memcpy (&floatLowKey, (char*)lowKey, sizeof(float));
                     void *floatTrafficCop = malloc (sizeof(float));
                     memcpy (floatTrafficCop, (char*)page + offset, sizeof(float));
-                    condition = index_manager->checkCondition (floatLowKey, floatTrafficCop);
+                    condition = checkCondition (floatLowKey, floatTrafficCop);
                     free (floatTrafficCop);
                     if (condition == LESSTHAN) {
                         break;
@@ -1223,7 +1233,7 @@ void IX_ScanIterator::scanInitialize (IXFileHandle &ixfh, const Attribute &attr,
                     void *leafKey = malloc (sizeof(int) + leafKeyLen);
                     memcpy (leafKey, (char*)page + offset + sizeof(int), sizeof(int) + leafKeyLen);
 
-                    condition = index_manager->checkCondition (lowKey, leafKey);
+                    condition = checkCondition (lowKey, leafKey);
                     free (leafKey);
 
                     if (condition == EQUAL or condition == LESSTHAN) {
@@ -1240,7 +1250,7 @@ void IX_ScanIterator::scanInitialize (IXFileHandle &ixfh, const Attribute &attr,
                     void *intLeafKey = malloc (sizeof(int));
                     memcpy (intLeafKey, (char*)page + offset + sizeof(int), sizeof(int));
 
-                    condition = index_manager->checkCondition (intLowKey, intLeafKey);
+                    condition = checkCondition (intLowKey, intLeafKey);
                     free (intLeafKey);
 
                     if (condition == EQUAL or condition == LESSTHAN) {
@@ -1258,7 +1268,7 @@ void IX_ScanIterator::scanInitialize (IXFileHandle &ixfh, const Attribute &attr,
                     void *floatLeafKey = malloc (sizeof(float));
                     memcpy (floatLeafKey, (char*)page + offset + sizeof(int), sizeof(float));
 
-                    condition = index_manager->checkCondition (floatLowKey, floatLeafKey);
+                    condition = checkCondition (floatLowKey, floatLeafKey);
                     free (floatLeafKey);
 
                     if (condition == EQUAL or condition == LESSTHAN) {
@@ -1283,7 +1293,7 @@ void IX_ScanIterator::scanInitialize (IXFileHandle &ixfh, const Attribute &attr,
                     void *leafKey = malloc (sizeof(int) + leafKeyLen);
                     memcpy (leafKey, (char*)page + offset + sizeof(int), sizeof(int) + leafKeyLen);
 
-                    condition = index_manager->checkCondition (lowKey, leafKey);
+                    condition = checkCondition (lowKey, leafKey);
                     free (leafKey);
 
                     if (condition == LESSTHAN) {
@@ -1300,7 +1310,7 @@ void IX_ScanIterator::scanInitialize (IXFileHandle &ixfh, const Attribute &attr,
                     void *intLeafKey = malloc (sizeof(int));
                     memcpy (intLeafKey, (char*)page + offset + sizeof(int), sizeof(int));
 
-                    condition = index_manager->checkCondition (intLowKey, intLeafKey);
+                    condition = checkCondition (intLowKey, intLeafKey);
                     free (intLeafKey);
 
                     if (condition == LESSTHAN) {
@@ -1318,7 +1328,7 @@ void IX_ScanIterator::scanInitialize (IXFileHandle &ixfh, const Attribute &attr,
                     void *floatLeafKey = malloc (sizeof(float));
                     memcpy (floatLeafKey, (char*)page + offset + sizeof(int), sizeof(float));
 
-                    condition = index_manager->checkCondition (floatLowKey, floatLeafKey);
+                    condition = checkCondition (floatLowKey, floatLeafKey);
                     free (floatLeafKey);
 
                     if (condition == LESSTHAN) {
@@ -1582,7 +1592,6 @@ IX_ScanIterator::IX_ScanIterator()
     iterPage = NULL;
     lowKey = NULL;
     highKey = NULL;
-    index_manager = IndexManager::instance();
 }
 
 IX_ScanIterator::~IX_ScanIterator()
@@ -1662,18 +1671,18 @@ RC IX_ScanIterator::getNextEntry(RID &rid, void *key)
         if (attribute.type == TypeVarChar) {
             void *leafKey = malloc (keySize);
             memcpy (leafKey, (char*)iterPage + iterOffset + sizeof(int), keySize);
-            condition = index_manager->checkCondition (leafKey, highKey);
+            condition = checkCondition (leafKey, highKey);
             free (leafKey);
         }
         else if (attribute.type == TypeInt) {
             int intLeafKey = 0;
             memcpy (&intLeafKey, (char*)iterPage + iterOffset + sizeof(int), sizeof(int));
-            condition = index_manager->checkCondition (intLeafKey, highKey);
+            condition = checkCondition (intLeafKey, highKey);
         }
         else { // attr.type == TypeReal
             float floatLeafKey = 0;
             memcpy (&floatLeafKey, (char*)iterPage + iterOffset + sizeof(int), sizeof(float));
-            condition = index_manager->checkCondition (floatLeafKey, highKey);
+            condition = checkCondition (floatLeafKey, highKey);
         }
 
         if (highKeyInclusive) {
@@ -1729,6 +1738,63 @@ RC IX_ScanIterator::close()
     free (lowKey);
     free (highKey);
     return SUCCESS;
+}
+
+RC IX_ScanIterator::checkCondition(int checkInt, const void *value){
+    int32_t intValue;
+    memcpy (&intValue, value, INT_SIZE);
+    if(checkInt == intValue){
+        return 1;
+    }
+    else if (checkInt >= intValue){
+        return 2;
+    }
+    else {
+        return 3;
+    }
+}
+
+RC IX_ScanIterator::checkCondition(float checkReal, const void *value){
+    float realValue;
+    memcpy (&realValue, value, REAL_SIZE);
+    if(checkReal == realValue){
+        return 1;
+    }
+    else if (checkReal >= realValue){
+        return 2;
+    }
+    else {
+        return 3;
+    }
+}
+
+//for string
+RC IX_ScanIterator::checkCondition(void *checkString, const void *value){
+    //for value
+    int32_t valueSize;
+    memcpy(&valueSize, value, VARCHAR_LENGTH_SIZE);
+    char valueStr[valueSize + 1];
+    valueStr[valueSize] = '\0';
+    memcpy(valueStr, (char*) value + VARCHAR_LENGTH_SIZE, valueSize);
+
+    //for check string
+    int32_t checkSize;
+    memcpy(&checkSize, checkString, VARCHAR_LENGTH_SIZE);
+    char checkStr[checkSize + 1];
+    checkStr[checkSize] = '\0';
+    memcpy(checkStr, (char*) checkString + VARCHAR_LENGTH_SIZE, checkSize);
+
+    int cmp = strcmp(checkStr, valueStr);
+
+    if(cmp == 0){
+        return 1;
+    }
+    else if(cmp >= 0){
+        return 2; // checkString >= value
+    }
+    else {
+        return 3; // checkString < value
+    }
 }
 
 
