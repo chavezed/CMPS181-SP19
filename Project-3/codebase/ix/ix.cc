@@ -1197,17 +1197,16 @@ void IX_ScanIterator::scanInitialize (IXFileHandle &ixfh, const Attribute &attr,
                     }
                     offset += sizeof(float) + sizeof(int);
                 }
-
-                // Two possible cases when reaching this point:
-                // 1) a left page pointer was found so we broke out of the loop
-                // 2) loop terminated since offset = freeSpaceOffset (offset now pointing past last key + pagePointer)
-
-                // grab the page pointer to the left of a key
-                // if the offset ran off, still works
-                memcpy (&nextPageNum, (char*)page + offset - sizeof(int), sizeof(int));
-                ixfileHandle->readPage (nextPageNum, page);
-                memcpy (&indicator, (char*)page, sizeof(char));
             }
+            // Two possible cases when reaching this point:
+            // 1) a left page pointer was found so we broke out of the loop
+            // 2) loop terminated since offset = freeSpaceOffset (offset now pointing past last key + pagePointer)
+
+            // grab the page pointer to the left of a key
+            // if the offset ran off, still works
+            memcpy (&nextPageNum, (char*)page + offset - sizeof(int), sizeof(int));
+            ixfileHandle->readPage (nextPageNum, page);
+            memcpy (&indicator, (char*)page, sizeof(char));
         }
     }
 
