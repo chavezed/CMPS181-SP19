@@ -131,10 +131,13 @@ class IX_ScanIterator {
                         bool lowKInclusive,
                         bool highKInclusive);
 
+        RC checkCondition(int checkInt, const void *value);
+        RC checkCondition(float checkReal, const void *value);
+        RC checkCondition(void *checkString, const void *value);
+
         friend class IndexManager;
         friend class IXFileHandle;
     private:
-        IndexManager *index_manager;
         IXFileHandle ixfileHandle;
         Attribute attribute;
         void *lowKey;
