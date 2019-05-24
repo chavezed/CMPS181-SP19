@@ -1421,7 +1421,7 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
                 }
                 cout << "]\"";
                 if(offset<freeSpaceOffset){
-                    cout<<",\n";
+                    cout<<",";
                 }
                 else{
                     cout<<"]}\n";
@@ -1444,7 +1444,7 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
                 }
                 cout << "]\"";
                 if(offset<freeSpaceOffset){
-                    cout<<",\n";
+                    cout<<",";
                 }
                 else{
                     cout<<"]}\n";
@@ -1467,7 +1467,7 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
                 }
                 cout << "]\"";
                 if(offset<freeSpaceOffset){
-                    cout<<",\n";
+                    cout<<",";
                 }
                 else{
                     cout<<"]}\n";
