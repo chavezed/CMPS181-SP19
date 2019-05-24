@@ -1419,10 +1419,10 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
                 }
                 cout << "]\"";
                 if(offset<freeSpaceOffset){
-                    cout<<",";
+                    cout<<",\n";
                 }
                 else{
-                    cout<<"]}";
+                    cout<<"]}\n";
                 } 
             }
             else if(att.type == TypeReal){
@@ -1442,10 +1442,10 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
                 }
                 cout << "]\"";
                 if(offset<freeSpaceOffset){
-                    cout<<",";
+                    cout<<",\n";
                 }
                 else{
-                    cout<<"]}";
+                    cout<<"]}\n";
                 } 
             }
             else{
@@ -1465,10 +1465,10 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
                 }
                 cout << "]\"";
                 if(offset<freeSpaceOffset){
-                    cout<<",";
+                    cout<<",\n";
                 }
                 else{
-                    cout<<"]}";
+                    cout<<"]}\n";
                 }
             }
         }
@@ -1483,8 +1483,17 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
         offset += sizeof(int);
         int tempOffset = offset;
         tempOffset += sizeof(int);//temp offset used for keys
-        
-        if(att.type == TypeVarChar){
+        if(freeSpaceOffset == 9){
+            int newPageNum = 0;
+            cout<<spaces<<"{\"keys\":[],\n";
+            cout<<spaces<<" \"children\": [\n";
+            memcpy(&newPageNum, (char*)page+offset, sizeof(int));
+            printRecursive(ixfileHandle, att, newPageNum, tabs+1);
+            cout<<spaces<<"]}\n";
+            free(page);
+            return;
+        }
+        else if(att.type == TypeVarChar){
             cout << spaces << "{\"keys\":[";
             while(tempOffset < freeSpaceOffset){
                 int keySize = 0;
