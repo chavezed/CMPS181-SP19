@@ -1419,13 +1419,6 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
                         cout<<",";
                     }
                 }
-                cout << "]\"";
-                if(offset<freeSpaceOffset){
-                    cout<<",";
-                }
-                else{
-                    cout<<"]}\n";
-                } 
             }
             else if(att.type == TypeReal){
                 float keyVal = 0;
@@ -1442,13 +1435,6 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
                         cout<<",";
                     }
                 }
-                cout << "]\"";
-                if(offset<freeSpaceOffset){
-                    cout<<",";
-                }
-                else{
-                    cout<<"]}\n";
-                } 
             }
             else{
                 int keyVal = 0;
@@ -1465,14 +1451,14 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
                         cout<<",";
                     }
                 }
-                cout << "]\"";
-                if(offset<freeSpaceOffset){
-                    cout<<",";
-                }
-                else{
-                    cout<<"]}\n";
-                }
             }
+            cout << "]\"";
+            if(offset<freeSpaceOffset){
+                cout<<",";
+            }
+            else{
+                cout<<"]}\n";
+            } 
         }
         free(page);
         return;
@@ -1526,11 +1512,12 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
                 // string keyVal[keySize+1];
                 // memcpy(&keyVal, (char*)page+offset, keySize);
                 offset += keySize;
-                cout<<spaces<<"]}";
+                // cout<<spaces<<"]}";
                 if(offset < freeSpaceOffset)
                     cout<<",\n";
                 else cout<<"\n";    
             }
+            cout<<spaces<<"]}";
             free(page);
             return;
         }
@@ -1553,11 +1540,11 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
                 offset += sizeof(int);
                 printRecursive(ixfileHandle, att, newPageNum, tabs+1);
                 offset += sizeof(int);
-                cout<<spaces<<"]}";
                 if(offset < freeSpaceOffset)
                     cout<<",\n";
                 else cout<<"\n";
             }
+            cout<<spaces<<"]}";
             free(page);
             return;
         }
@@ -1580,11 +1567,11 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
                 offset += sizeof(int);
                 printRecursive(ixfileHandle, att, newPageNum, tabs+1);
                 offset += sizeof(int);
-                cout<<spaces<<"]}";
                 if(offset < freeSpaceOffset)
                     cout<<",\n";
                 else cout<<"\n";
             }
+            cout<<spaces<<"]}";
             free(page);
             return;
         }
