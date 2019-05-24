@@ -85,25 +85,6 @@ class IndexManager {
         static PagedFileManager *_pf_manager;
 };
 
-
-class IX_ScanIterator {
-    public:
-
-        // Constructor
-        IX_ScanIterator();
-
-        // Destructor
-        ~IX_ScanIterator();
-
-        // Get next matching entry
-        RC getNextEntry(RID &rid, void *key);
-
-        // Terminate index scan
-        RC close();
-};
-
-
-
 class IXFileHandle {
     public:
 
@@ -127,6 +108,43 @@ class IXFileHandle {
     // Put the current counter values of associated PF FileHandles into variables
     RC collectCounterValues(unsigned &readPageCount, unsigned &writePageCount, unsigned &appendPageCount);
 
+};
+
+class IX_ScanIterator {
+    public:
+
+        // Constructor
+        IX_ScanIterator();
+
+        // Destructor
+        ~IX_ScanIterator();
+
+        // Get next matching entry
+        RC getNextEntry(RID &rid, void *key);
+
+        // Terminate index scan
+        RC close();
+
+        void scanInitialize (IXFileHandle &ixfh, const Attribute &attr,
+                        const void *lowK,
+                        const void *highK,
+                        bool lowKInclusive,
+                        bool highKInclusive);
+
+        friend class IndexManager;
+        friend class IXFileHandle;
+    private:
+        IndexManager *index_manager;
+        IXFileHandle ixfileHandle;
+        Attribute attribute;
+        void *lowKey;
+        void *highKey;
+        bool lowKeyInclusive;
+        bool highKeyInclusive;
+
+        void *iterPage;
+        int iterOffset;
+        int iterSlotNum;
 };
 
 #endif

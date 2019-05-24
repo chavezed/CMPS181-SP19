@@ -1089,8 +1089,261 @@ RC IndexManager::scan(IXFileHandle &ixfileHandle,
         bool            highKeyInclusive,
         IX_ScanIterator &ix_ScanIterator)
 {
-    return -1;
+    ix_ScanIterator.scanInitialize(ixfileHandle, attribute, lowKey, highKey, lowKeyInclusive, highKeyInclusive);
+    return SUCCESS;
 }
+
+// * * * * * * * * * * * * * * * *
+// * * * * scanInitialize  * * * *
+// * * * * * * * * * * * * * * * *
+
+void IX_ScanIterator::scanInitialize (IXFileHandle &ixfh, const Attribute &attr,
+                        const void *lowK,
+                        const void *highK,
+                        bool lowKInclusive,
+                        bool highKInclusive) {
+
+    
+
+    this->attribute = attr;
+    this->lowKeyInclusive = lowKInclusive;
+    this->highKeyInclusive = highKInclusive;
+    this->ixfileHandle = ixfh;
+
+    int lowKeyLen = 4;
+    if (attribute.type == TypeVarChar) {
+        int len = 0;
+        memcpy (&len, (char*)lowK, sizeof(int));
+        lowKeyLen += len;
+    }
+    lowKey = malloc (lowKeyLen);
+    memcpy (lowKey, lowK, lowKeyLen);
+
+    int highKeyLen = 4;
+    if (attribute.type == TypeVarChar) {
+        int len = 0;
+        memcpy (&len, (char*)highK, sizeof(int));
+        highKeyLen += len;
+    }
+    highKey = malloc (highKeyLen);
+    memcpy (highKey, highK, highKeyLen);
+
+    void *page = malloc (PAGE_SIZE);
+    ixfileHandle.readPage (ixfileHandle.rootPageNum, page);
+
+    int nextPageNum = 0;
+    int offset;
+
+    char indicator;
+    memcpy (&indicator, (char*)page, sizeof(char));
+
+    // find the correct leaf page key belongs in
+    while (indicator != LEAF_CHAR) {
+        offset = 13;
+        if (lowKey == NULL) {
+            memcpy (&nextPageNum, (char*)page + 9, sizeof(int));
+            ixfileHandle.readPage (nextPageNum, page);
+            memcpy (&indicator, (char*)page, sizeof(char));
+        }
+        else {
+            int freeSpaceOffset = 0;
+            memcpy (&freeSpaceOffset, (char*)page + 5, sizeof(int));
+            
+            int condition;
+            while (offset < freeSpaceOffset) {
+                if (attribute.type == TypeVarChar) {
+                    int trafficCopLen = 0;
+                    memcpy (&trafficCopLen, (char*)page + offset, sizeof(int));
+                    void *trafficCop = malloc (sizeof(int) + trafficCopLen);
+                    memcpy (trafficCop, (char*)page + offset, sizeof(int) + trafficCopLen);
+                    condition = index_manager->checkCondition (lowKey, trafficCop);
+                    free (trafficCop);
+                    if (condition == LESSTHAN) {
+                        break;
+                    }
+                    offset += sizeof(int) + trafficCopLen + sizeof(int);
+                }
+                else if (attribute.type == TypeInt) {
+                    int intLowKey = 0;
+                    memcpy (&intLowKey, (char*)lowKey, sizeof(int));
+                    void *intTrafficCop = malloc (sizeof(int));
+                    memcpy (intTrafficCop, (char*)page + offset, sizeof(int));
+                    condition = index_manager->checkCondition (intLowKey, intTrafficCop);
+                    free (intTrafficCop);
+                    if (condition == LESSTHAN) {  
+                        break;
+                    }
+                    offset += sizeof(int) + sizeof(int);
+                }
+                else { // attribute.type == TypeReal
+                    float floatLowKey = 0;
+                    memcpy (&floatLowKey, (char*)lowKey, sizeof(float));
+                    void *floatTrafficCop = malloc (sizeof(float));
+                    memcpy (floatTrafficCop, (char*)page + offset, sizeof(float));
+                    condition = index_manager->checkCondition (floatLowKey, floatTrafficCop);
+                    free (floatTrafficCop);
+                    if (condition == LESSTHAN) {
+                        break;
+                    }
+                    offset += sizeof(float) + sizeof(int);
+                }
+
+                // Two possible cases when reaching this point:
+                // 1) a left page pointer was found so we broke out of the loop
+                // 2) loop terminated since offset = freeSpaceOffset (offset now pointing past last key + pagePointer)
+
+                // grab the page pointer to the left of a key
+                // if the offset ran off, still works
+                memcpy (&nextPageNum, (char*)page + offset - sizeof(int), sizeof(int));
+                ixfileHandle.readPage (nextPageNum, page);
+                memcpy (&indicator, (char*)page, sizeof(char));
+            }
+        }
+    }
+
+    // leaf page where key belongs has been found
+    if (lowKey == NULL) {
+        this->iterOffset = 17;
+        this->iterSlotNum = 0;
+        this->iterPage = malloc (PAGE_SIZE);
+        memcpy (iterPage, page, PAGE_SIZE);
+        free (page);
+    }
+    else {
+        // advance offset to correct key position
+        if (lowKeyInclusive) {
+            int leafFreeSpaceOffset = 0;
+            memcpy (&leafFreeSpaceOffset, (char*)page + 13, sizeof(int));
+            offset = 17;
+            while (offset < leafFreeSpaceOffset) {
+                int condition;
+                if (attribute.type == TypeVarChar) {
+                    int leafKeyLen = 0;
+                    memcpy (&leafKeyLen, (char*)page + offset + sizeof(int), sizeof(int));
+                    void *leafKey = malloc (sizeof(int) + leafKeyLen);
+                    memcpy (leafKey, (char*)page + offset + sizeof(int), sizeof(int) + leafKeyLen);
+
+                    condition = index_manager->checkCondition (lowKey, leafKey);
+                    free (leafKey);
+
+                    if (condition == EQUAL or condition == LESSTHAN) {
+                        break;
+                    }
+                    int ridEntriesCount;
+                    memcpy (&ridEntriesCount, (char*)page + offset, sizeof(int));
+                    // numOfRIDs | key (size + string) | listOfRIDs
+                    offset += sizeof(int) + (sizeof(int) + leafKeyLen) + (ridEntriesCount * (2 * sizeof(int)));
+                }
+                else if (attribute.type == TypeInt) {
+                    int intLowKey = 0;
+                    memcpy (&intLowKey, (char*)lowKey, sizeof(int));
+                    void *intLeafKey = malloc (sizeof(int));
+                    memcpy (intLeafKey, (char*)page + offset + sizeof(int), sizeof(int));
+
+                    condition = index_manager->checkCondition (intLowKey, intLeafKey);
+                    free (intLeafKey);
+
+                    if (condition == EQUAL or condition == LESSTHAN) {
+                        break;
+                    }
+
+                    int ridEntriesCount;
+                    memcpy (&ridEntriesCount, (char*)page + offset, sizeof(int));
+                    offset += sizeof(int) + sizeof(int) + (ridEntriesCount * (2 * sizeof(int)));
+
+                }
+                else { // attribute.type == TypeReal
+                    int floatLowKey = 0;
+                    memcpy (&floatLowKey, (char*)lowKey, sizeof(float));
+                    void *floatLeafKey = malloc (sizeof(float));
+                    memcpy (floatLeafKey, (char*)page + offset + sizeof(int), sizeof(float));
+
+                    condition = index_manager->checkCondition (floatLowKey, floatLeafKey);
+                    free (floatLeafKey);
+
+                    if (condition == EQUAL or condition == LESSTHAN) {
+                        break;
+                    }
+
+                    int ridEntriesCount;
+                    memcpy (&ridEntriesCount, (char*)page + offset, sizeof(int));
+                    offset += sizeof(int) + sizeof(float) + (ridEntriesCount * (2 * sizeof(int)));
+                }
+            }
+        }
+        else {
+            int leafFreeSpaceOffset = 0;
+            memcpy (&leafFreeSpaceOffset, (char*)page + 13, sizeof(int));
+            offset = 17;
+            while (offset < leafFreeSpaceOffset) {
+                int condition;
+                if (attribute.type == TypeVarChar) {
+                    int leafKeyLen = 0;
+                    memcpy (&leafKeyLen, (char*)page + offset + sizeof(int), sizeof(int));
+                    void *leafKey = malloc (sizeof(int) + leafKeyLen);
+                    memcpy (leafKey, (char*)page + offset + sizeof(int), sizeof(int) + leafKeyLen);
+
+                    condition = index_manager->checkCondition (lowKey, leafKey);
+                    free (leafKey);
+
+                    if (condition == LESSTHAN) {
+                        break;
+                    }
+                    int ridEntriesCount;
+                    memcpy (&ridEntriesCount, (char*)page + offset, sizeof(int));
+                    // numOfRIDs | key (size + string) | listOfRIDs
+                    offset += sizeof(int) + (sizeof(int) + leafKeyLen) + (ridEntriesCount * (2 * sizeof(int)));
+                }
+                else if (attribute.type == TypeInt) {
+                    int intLowKey = 0;
+                    memcpy (&intLowKey, (char*)lowKey, sizeof(int));
+                    void *intLeafKey = malloc (sizeof(int));
+                    memcpy (intLeafKey, (char*)page + offset + sizeof(int), sizeof(int));
+
+                    condition = index_manager->checkCondition (intLowKey, intLeafKey);
+                    free (intLeafKey);
+
+                    if (condition == LESSTHAN) {
+                        break;
+                    }
+
+                    int ridEntriesCount;
+                    memcpy (&ridEntriesCount, (char*)page + offset, sizeof(int));
+                    offset += sizeof(int) + sizeof(int) + (ridEntriesCount * (2 * sizeof(int)));
+
+                }
+                else { // attribute.type == TypeReal
+                    int floatLowKey = 0;
+                    memcpy (&floatLowKey, (char*)lowKey, sizeof(float));
+                    void *floatLeafKey = malloc (sizeof(float));
+                    memcpy (floatLeafKey, (char*)page + offset + sizeof(int), sizeof(float));
+
+                    condition = index_manager->checkCondition (floatLowKey, floatLeafKey);
+                    free (floatLeafKey);
+
+                    if (condition == LESSTHAN) {
+                        break;
+                    }
+
+                    int ridEntriesCount;
+                    memcpy (&ridEntriesCount, (char*)page + offset, sizeof(int));
+                    offset += sizeof(int) + sizeof(float) + (ridEntriesCount * (2 * sizeof(int)));
+                }
+            }
+
+        }
+        // correct key found, set the current page we're in, the slotNum to start reading RIDs from
+        // and the offset pointing to the start of the leaf entry ( --> |#RIDs|key|listOfRIDs| )
+        this->iterPage = malloc (PAGE_SIZE);
+        memcpy (iterPage, page, PAGE_SIZE);
+        free (page);
+        this->iterSlotNum = 0;
+        this->iterOffset = offset;
+    }
+}
+
+// * * * * * * * * * * * * * * * *
+// scanInitializeEnd
 
 void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &att, int pageNum, int tabs) const{
     // set tabs length
@@ -1326,6 +1579,10 @@ void IndexManager::printBtree(IXFileHandle &ixfileHandle, const Attribute &attri
 
 IX_ScanIterator::IX_ScanIterator()
 {
+    iterPage = NULL;
+    lowKey = NULL;
+    highKey = NULL;
+    index_manager = IndexManager::instance();
 }
 
 IX_ScanIterator::~IX_ScanIterator()
@@ -1334,12 +1591,144 @@ IX_ScanIterator::~IX_ScanIterator()
 
 RC IX_ScanIterator::getNextEntry(RID &rid, void *key)
 {
+    int ridEntriesCount = 0;
+    memcpy (&ridEntriesCount, (char*)iterPage + iterOffset, sizeof(int));
+
+    int freeSpaceOffset = 0;
+    memcpy (&freeSpaceOffset, (char*)iterPage + 13, sizeof(int));
+
+    // if no more rids to read from current key, move to next list of rids
+    if (iterSlotNum >= ridEntriesCount) {
+        int keySize = 4;
+        if (attribute.type == TypeVarChar) {
+            int len = 0;
+            memcpy (&len, (char*)iterPage + iterOffset + sizeof(int), sizeof(int));
+            keySize += len;
+        }
+        iterOffset += sizeof(int) + keySize + (ridEntriesCount * 2 * sizeof(int));
+    }
+
+    // check if all entries read from current page
+    if (iterOffset >= freeSpaceOffset) {
+        int nextPage;
+        memcpy (&nextPage, (char*)iterPage + 9, sizeof(int));
+
+        // check if no more pages to read from
+        if (nextPage == -1) {
+            return IX_EOF;
+        }
+
+        ixfileHandle.readPage (nextPage, iterPage);
+        iterSlotNum = 0;
+        iterOffset = 17;
+    }
+
+    // high bound +infinity
+    // no need to check if key is less than (or equal to) high bound
+    if (highKey == NULL) {
+        int ridPageNum = 0;
+        int ridSlotNum = 0;
+
+        int keySize = 4;
+        if (attribute.type == TypeVarChar) {
+            int len = 0;
+            memcpy (&len, (char*)iterPage + iterOffset + sizeof(int), sizeof(int));
+            keySize += len;
+        }
+
+        int ridStartOffset = iterOffset + sizeof(int) + keySize + (iterSlotNum * 2 * sizeof(int));
+        memcpy (&ridPageNum, (char*)iterPage + ridStartOffset, sizeof(int));
+        memcpy (&ridSlotNum, (char*)iterPage + ridStartOffset + sizeof(int), sizeof(int));
+
+        memcpy (key, (char*)iterPage + iterOffset + sizeof(int), keySize);
+
+        rid.pageNum = ridPageNum;
+        rid.slotNum = ridSlotNum;
+
+        iterSlotNum += 1;
+        return SUCCESS;
+    } // if highKey == null end
+
+    else { // highKey != NULL, high bound specified. need to check if key less than
+        int keySize = 4;
+        if (attribute.type == TypeVarChar) {
+            int len = 0;
+            memcpy (&len, (char*)iterPage + iterOffset + sizeof(int), sizeof(int));
+            keySize += len;
+        }
+
+        // grab condition code to check if leafKey below/above high bound (highKey)
+        int condition = 0;
+        if (attribute.type == TypeVarChar) {
+            void *leafKey = malloc (keySize);
+            memcpy (leafKey, (char*)iterPage + iterOffset + sizeof(int), keySize);
+            condition = index_manager->checkCondition (leafKey, highKey);
+            free (leafKey);
+        }
+        else if (attribute.type == TypeInt) {
+            int intLeafKey = 0;
+            memcpy (&intLeafKey, (char*)iterPage + iterOffset + sizeof(int), sizeof(int));
+            condition = index_manager->checkCondition (intLeafKey, highKey);
+        }
+        else { // attr.type == TypeReal
+            float floatLeafKey = 0;
+            memcpy (&floatLeafKey, (char*)iterPage + iterOffset + sizeof(int), sizeof(float));
+            condition = index_manager->checkCondition (floatLeafKey, highKey);
+        }
+
+        if (highKeyInclusive) {
+            // check for equal needs to be first for inclusivity
+            if (condition == EQUAL or condition == LESSTHAN) {
+                int ridPageNum;
+                int ridSlotNum;
+
+                int ridStartOffset = iterOffset + sizeof(int) + keySize + (iterSlotNum * 2 * sizeof(int));
+                memcpy (&ridPageNum, (char*)iterPage + ridStartOffset, sizeof(int));
+                memcpy (&ridSlotNum, (char*)iterPage + ridStartOffset + sizeof(int), sizeof(int));
+
+                memcpy (key, (char*)iterPage + iterOffset + sizeof(int), keySize);
+
+                rid.pageNum = ridPageNum;
+                rid.slotNum = ridSlotNum;
+                iterSlotNum += 1;
+                return SUCCESS;
+            }
+            else { // leafKey greater than high bound; return  IX_EOF
+                return IX_EOF;
+            }
+        } 
+        else { // highKeyInclusive != 1
+            // not inclusive, so don't check for eq
+            if (condition == LESSTHAN) {
+                int ridPageNum;
+                int ridSlotNum;
+
+                int ridStartOffset = iterOffset + sizeof(int) + keySize + (iterSlotNum * 2 * sizeof(int));
+                memcpy (&ridPageNum, (char*)iterPage + ridStartOffset, sizeof(int));
+                memcpy (&ridSlotNum, (char*)iterPage + ridStartOffset + sizeof(int), sizeof(int));
+
+                memcpy (key, (char*)iterPage + iterOffset + sizeof(int), keySize);
+
+                rid.pageNum = ridPageNum;
+                rid.slotNum = ridSlotNum;
+                iterSlotNum += 1;
+                return SUCCESS;
+            }
+            else { // leafKey greater than or equal to high bound; return IX_EOF
+                return IX_EOF;
+            }
+        }
+    } 
+    // should never reach here
     return -1;
 }
 
 RC IX_ScanIterator::close()
 {
-    return -1;
+    free (iterPage);
+    free (lowKey);
+    free (highKey);
+    return SUCCESS;
 }
 
 
