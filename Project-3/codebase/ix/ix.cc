@@ -1638,6 +1638,7 @@ RC IX_ScanIterator::getNextEntry(RID &rid, void *key)
 
         // check if no more pages to read from
         if (nextPage == -1) {
+            free (iterPage);
             return IX_EOF;
         }
 
@@ -1714,9 +1715,11 @@ RC IX_ScanIterator::getNextEntry(RID &rid, void *key)
                 rid.pageNum = ridPageNum;
                 rid.slotNum = ridSlotNum;
                 iterSlotNum += 1;
+                free (iterPage);
                 return SUCCESS;
             }
             else { // leafKey greater than high bound; return  IX_EOF
+                free (iterPage);
                 return IX_EOF;
             }
         } 
@@ -1735,9 +1738,11 @@ RC IX_ScanIterator::getNextEntry(RID &rid, void *key)
                 rid.pageNum = ridPageNum;
                 rid.slotNum = ridSlotNum;
                 iterSlotNum += 1;
+                free (iterPage);
                 return SUCCESS;
             }
             else { // leafKey greater than or equal to high bound; return IX_EOF
+                free (iterPage);
                 return IX_EOF;
             }
         }
