@@ -1616,6 +1616,7 @@ RC IX_ScanIterator::getNextEntry(RID &rid, void *key)
             keySize += len;
         }
         iterOffset += sizeof(int) + keySize + (ridEntriesCount * 2 * sizeof(int));
+        iterSlotNum = 0;
     }
 
     // check if all entries read from current page
@@ -1630,6 +1631,7 @@ RC IX_ScanIterator::getNextEntry(RID &rid, void *key)
         }
 
         ixfileHandle->readPage (nextPage, iterPage);
+        iterPageNum = nextPage;
         iterSlotNum = 0;
         iterOffset = 17;
     }
