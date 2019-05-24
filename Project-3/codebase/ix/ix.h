@@ -145,7 +145,7 @@ class IX_ScanIterator {
         bool lowKeyInclusive;
         bool highKeyInclusive;
 
-        void *iterPage;
+        int iterPageNum;
         int iterOffset;
         int iterSlotNum;
 };

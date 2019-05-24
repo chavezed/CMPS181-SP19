@@ -1215,8 +1215,9 @@ void IX_ScanIterator::scanInitialize (IXFileHandle &ixfh, const Attribute &attr,
     if (lowKey == NULL) {
         this->iterOffset = 17;
         this->iterSlotNum = 0;
-        this->iterPage = malloc (PAGE_SIZE);
-        memcpy (iterPage, page, PAGE_SIZE);
+        // after runnign through while loop
+        // nextPageNum points to the current leaf page we found
+        this->iterPageNum = nextPageNum;
         free (page);
     }
     else {
@@ -1344,11 +1345,12 @@ void IX_ScanIterator::scanInitialize (IXFileHandle &ixfh, const Attribute &attr,
         }
         // correct key found, set the current page we're in, the slotNum to start reading RIDs from
         // and the offset pointing to the start of the leaf entry ( --> |#RIDs|key|listOfRIDs| )
-        this->iterPage = malloc (PAGE_SIZE);
-        memcpy (iterPage, page, PAGE_SIZE);
+        /*this->iterPage = malloc (PAGE_SIZE);
+        memcpy (iterPage, page, PAGE_SIZE);*/
         free (page);
         this->iterSlotNum = 0;
         this->iterOffset = offset;
+        this->iterPageNum = nextPageNum;
     }
 }
 
@@ -1598,7 +1600,7 @@ void IndexManager::printBtree(IXFileHandle &ixfileHandle, const Attribute &attri
 
 IX_ScanIterator::IX_ScanIterator()
 {
-    iterPage = NULL;
+    iterPageNum = -1;
     lowKey = NULL;
     highKey = NULL;
 }
@@ -1609,6 +1611,9 @@ IX_ScanIterator::~IX_ScanIterator()
 
 RC IX_ScanIterator::getNextEntry(RID &rid, void *key)
 {
+    void *iterPage = malloc (PAGE_SIZE);
+    ixfileHandle.readPage (iterPageNum, iterPage);
+
     int ridEntriesCount = 0;
     memcpy (&ridEntriesCount, (char*)iterPage + iterOffset, sizeof(int));
 
@@ -1743,7 +1748,7 @@ RC IX_ScanIterator::getNextEntry(RID &rid, void *key)
 
 RC IX_ScanIterator::close()
 {
-    free (iterPage);
+    iterPageNum = -1;
     free (lowKey);
     free (highKey);
     return SUCCESS;
