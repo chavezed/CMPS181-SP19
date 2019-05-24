@@ -541,30 +541,30 @@ void IndexManager::splitLeaf(IXFileHandle &ixfileHandle, PageNum pageID, const v
     //insert key into the correct page
     if(att.type == TypeVarChar){
         if(checkCondition(keyAtSplit, key)){
-            insertToLeafSorted(ixfileHandle, att, key, rid, pageID);
+            insertToLeafSorted(ixfileHandle, att, key, rid, ixfileHandle.getNumberOfPages() - 1);
         }
         else{
-            insertToLeafSorted(ixfileHandle, att, key, rid, ixfileHandle.getNumberOfPages() - 1);
+            insertToLeafSorted(ixfileHandle, att, key, rid, pageID);
         }
     }
     else if(att.type == TypeInt){
         int comp = 0;
         memcpy(&comp, keyAtSplit, sizeof(int));
         if(checkCondition(comp, key)){
-            insertToLeafSorted(ixfileHandle, att, key, rid, pageID);
+            insertToLeafSorted(ixfileHandle, att, key, rid, ixfileHandle.getNumberOfPages() - 1);
         }
         else{
-            insertToLeafSorted(ixfileHandle, att, key, rid, ixfileHandle.getNumberOfPages() - 1);
+            insertToLeafSorted(ixfileHandle, att, key, rid, pageID);
         }
     }
     else {
         float comp = 0;
         memcpy(&comp, keyAtSplit, sizeof(float));
         if(checkCondition(comp, key)){
-            insertToLeafSorted(ixfileHandle, att, key, rid, pageID);
+            insertToLeafSorted(ixfileHandle, att, key, rid, ixfileHandle.getNumberOfPages() - 1);  
         }
         else{
-            insertToLeafSorted(ixfileHandle, att, key, rid, ixfileHandle.getNumberOfPages() - 1);
+            insertToLeafSorted(ixfileHandle, att, key, rid, pageID);
         }
     } 
 
