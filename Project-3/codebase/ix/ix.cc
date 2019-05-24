@@ -1457,7 +1457,7 @@ void IndexManager::printRecursive(IXFileHandle &ixfileHandle, const Attribute &a
                 cout<<",";
             }
             else{
-                cout<<"]}\n";
+                cout<<"]}";
             } 
         }
         free(page);
