@@ -1,5 +1,5 @@
 1. Basic information
-Team number (e.g., 01) : 
+Team number (e.g., 01) : 04
 #1 Submitter ID : 
 #1 Student Name : 
 
@@ -7,17 +7,35 @@ Team number (e.g., 01) :
 
 2. Index Entry Format
 - Show your index entry design (structure). 
+ Start || #ofRIDs | key | rid list ||
+#ofRIDs: (int: 4 bytes) holds the number of rids that map to that specific key
+Key: (int, float, or varchar) given. Key itself.
+Rid list: holds all RIDs that map to the specific key value
 
 
 3. Page Format
 - Show your internal-page (non-leaf node) design.
 
+start || charIndicator | parentPageNum | freeSpaceOffset | 1st childPageNum | key | pagePointer | key | pagePointer | ... | pagePointer || end
+
+charIndicator: (char: 1 byte) used to indicate if the page is the root page, internal page, or leaf page.
+parentPageNum: (int: 4 bytes) used to store the page number of the parent of the current page
+freeSpaceOffset: (int: 4 bytes) used to point to the start of the free space within the current page
+1st childPageNum: (int: 4 bytes) used to point to the left most child of the current page
+
 - Show your leaf-page (leaf node) design.
+start || charIndicator | parentPageNum | leftPageNum | rightPageNum | freeSpaceOffset || end
+charIndicator: (char: 1 byte) used to indicate if the page is the root page, internal page, or leaf page
+parentPageNum: (int: 4 bytes) used to store the pageNumer of the parent of the current page
+leftPageNum: (int: 4 bytes) used to point to the page immediately to the left of the current page
+rightPageNum: (int: 4 bytes) used to point to the page immediately to the right of the current page
+freeSpaceOffset: (int: 4 bytes) used to point to the start of the freeSpace within the current page
 
 
 4. Implementation Detail
 - Have you added your own source file (.cc or .h)?
 
+No.
 
 - Other implementation details:
 
