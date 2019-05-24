@@ -230,7 +230,7 @@ RC IndexManager::findLeaf(IXFileHandle &ixfileHandle, const Attribute att, int &
                     memcpy(&indicator, (char*)page, sizeof(char));
                     break;
                 }
-                else if (freeSpace == (int)(offset + sizeof(int) + length)){// case where val is greater than last key on the page. 
+                else if (freeSpace < (int)(offset + sizeof(int))){// case where val is greater than last key on the page. 
                     memcpy((char*)page+offset, val, sizeof(int));//dethrone last greatest key and try to place val in the leaf page
                     pageNum = nextPage;
                     ixfileHandle.readPage(nextPage, page);
@@ -258,7 +258,7 @@ RC IndexManager::findLeaf(IXFileHandle &ixfileHandle, const Attribute att, int &
                     memcpy(&indicator, (char*)page, sizeof(char));
                     break;
                 }
-                else if (freeSpace == (int)(offset + sizeof(int) + length)){// case where val is greater than last key on the page. 
+                else if (freeSpace < (int)(offset + sizeof(int)) ){// case where val is greater than last key on the page. 
                     memcpy((char*)page+offset, val, sizeof(int));//dethrone last greatest key and try to place val in the leaf page
                     pageNum = nextPage;
                     ixfileHandle.readPage(nextPage, page);
@@ -1101,9 +1101,9 @@ void IX_ScanIterator::scanInitialize (IXFileHandle &ixfh, const Attribute &attr,
                         const void *lowK,
                         const void *highK,
                         bool lowKInclusive,
-                        bool highKInclusive) {
+                        bool highKInclusive) 
+{
 
-    
 
     this->attribute = attr;
     this->lowKeyInclusive = lowKInclusive;
