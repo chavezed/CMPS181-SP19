@@ -138,7 +138,7 @@ class IX_ScanIterator {
         friend class IndexManager;
         friend class IXFileHandle;
     private:
-        IXFileHandle ixfileHandle;
+        IXFileHandle *ixfileHandle;
         Attribute attribute;
         void *lowKey;
         void *highKey;

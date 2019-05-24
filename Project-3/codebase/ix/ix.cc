@@ -1108,7 +1108,7 @@ void IX_ScanIterator::scanInitialize (IXFileHandle &ixfh, const Attribute &attr,
     this->attribute = attr;
     this->lowKeyInclusive = lowKInclusive;
     this->highKeyInclusive = highKInclusive;
-    this->ixfileHandle = ixfh;
+    this->ixfileHandle = &ixfh;
 
     if (lowK != NULL) {
         int lowKeyLen = 4;
@@ -1139,7 +1139,7 @@ void IX_ScanIterator::scanInitialize (IXFileHandle &ixfh, const Attribute &attr,
     }
 
     void *page = malloc (PAGE_SIZE);
-    ixfileHandle.readPage (ixfileHandle.rootPageNum, page);
+    ixfileHandle->readPage (ixfileHandle->rootPageNum, page);
 
     int nextPageNum = 0;
     int offset;
@@ -1152,7 +1152,7 @@ void IX_ScanIterator::scanInitialize (IXFileHandle &ixfh, const Attribute &attr,
         offset = 13;
         if (lowKey == NULL) {
             memcpy (&nextPageNum, (char*)page + 9, sizeof(int));
-            ixfileHandle.readPage (nextPageNum, page);
+            ixfileHandle->readPage (nextPageNum, page);
             memcpy (&indicator, (char*)page, sizeof(char));
         }
         else {
@@ -1205,7 +1205,7 @@ void IX_ScanIterator::scanInitialize (IXFileHandle &ixfh, const Attribute &attr,
                 // grab the page pointer to the left of a key
                 // if the offset ran off, still works
                 memcpy (&nextPageNum, (char*)page + offset - sizeof(int), sizeof(int));
-                ixfileHandle.readPage (nextPageNum, page);
+                ixfileHandle->readPage (nextPageNum, page);
                 memcpy (&indicator, (char*)page, sizeof(char));
             }
         }
@@ -1612,7 +1612,7 @@ IX_ScanIterator::~IX_ScanIterator()
 RC IX_ScanIterator::getNextEntry(RID &rid, void *key)
 {
     void *iterPage = malloc (PAGE_SIZE);
-    ixfileHandle.readPage (iterPageNum, iterPage);
+    ixfileHandle->readPage (iterPageNum, iterPage);
 
     int ridEntriesCount = 0;
     memcpy (&ridEntriesCount, (char*)iterPage + iterOffset, sizeof(int));
@@ -1642,7 +1642,7 @@ RC IX_ScanIterator::getNextEntry(RID &rid, void *key)
             return IX_EOF;
         }
 
-        ixfileHandle.readPage (nextPage, iterPage);
+        ixfileHandle->readPage (nextPage, iterPage);
         iterSlotNum = 0;
         iterOffset = 17;
     }
@@ -1829,14 +1829,17 @@ IXFileHandle::~IXFileHandle()
 }
 
 RC IXFileHandle::readPage(PageNum pageNum, void *data){
+    ++ixReadPageCounter;
     return fh.readPage(pageNum, data);
 }
 
 RC IXFileHandle::writePage(PageNum pageNum, const void *data){
+    ++ixWritePageCounter;
     return fh.writePage(pageNum, data);
 } 
 
 RC IXFileHandle::appendPage(const void *data){
+    ++ixAppendPageCounter;
     return fh.appendPage(data);
 }
 
@@ -1846,9 +1849,6 @@ unsigned IXFileHandle::getNumberOfPages(){
 
 RC IXFileHandle::collectCounterValues(unsigned &readPageCount, unsigned &writePageCount, unsigned &appendPageCount)
 {
-    ixReadPageCounter = fh.readPageCounter;
-    ixWritePageCounter = fh.writePageCounter;
-    ixAppendPageCounter = fh.appendPageCounter;
     readPageCount   = ixReadPageCounter;
     writePageCount  = ixWritePageCounter;
     appendPageCount = ixAppendPageCounter;
