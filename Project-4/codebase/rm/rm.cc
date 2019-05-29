@@ -1047,7 +1047,53 @@ RC RelationManager::createIndex(const string &tableName, const string &attribute
 
 RC RelationManager::destroyIndex(const string &tableName, const string &attributeName)
 {
-	return -1;
+  RecordBasedFileManager *rbfm = RecordBasedFileManager::instance();
+  RC rc;
+  string fileName = getIndexName(tableName, attributeName);
+
+  // If this is a system table, we cannot delete it
+  bool isSystem;
+  rc = isSystemTable(isSystem, tableName);
+  if (rc){
+    return rc;
+  }
+  if (isSystem){
+    return RM_CANNOT_MOD_SYS_TBL;
+  }
+
+  // Delete the rbfm file holding this table's entries
+  rc = rbfm->destroyFile(fileName);
+  if (rc){
+    return rc;
+  }
+
+  rc = deleteTable(tableName);
+
+  //Delete from the index catolog
+  FileHandle fileHandle;
+  rc = rbfm->openFile(getFileName(INDEX_TABLE_NAME), fileHandle);
+
+  // Use empty projection because we only care about RID
+  RBFM_ScanIterator rbfm_si;
+  vector<string> projection; // Empty
+  void *value = malloc(fileName.length() + sizeof(int));
+  memset(value, 0, fileName.length() + sizeof(int));
+  toAPI(fileName, value);
+
+  rc = rbfm->scan(fileHandle, indexDescriptor, INDEX_COL_FILE_NAME, EQ_OP, value, projection, rbfm_si);
+
+  RID rid;
+  rc = rbfm_si.getNextRecord(rid, NULL);
+  if (rc){
+    return rc;
+  }
+
+  // Delete RID from table and close file
+  rbfm->deleteRecord(fileHandle, tableDescriptor, rid);
+  rbfm->closeFile(fileHandle);
+  rbfm_si.close();
+
+  return SUCCESS;
 }
 
 RC RelationManager::indexScan(const string &tableName,
@@ -1058,14 +1104,47 @@ RC RelationManager::indexScan(const string &tableName,
                       bool highKeyInclusive,
                       RM_IndexScanIterator &rm_IndexScanIterator)
 {
-	return -1;
+	// Open the file for the given tableName
+  IndexManager *ixm = IndexManager::instance();
+  RC rc = ixm->openFile(getIndexName(tableName, attributeName), rm_IndexScanIterator.ixfileHandle);
+  if (rc)
+      return rc;
+
+  // grab the record descriptor for the given tableName
+  vector<Attribute> recordDescriptor;
+  rc = getAttributes(tableName, recordDescriptor);
+  if (rc){
+    return rc;
+  }
+
+  //find the attribute.
+  auto pred = [&](Attribute a) {return a.name == attributeName;};
+  auto iterPos = find_if(recordDescriptor.begin(), recordDescriptor.end(), pred);
+  unsigned index = distance(recordDescriptor.begin(), iterPos);
+  if (index == recordDescriptor.size()){
+    return RM_NO_SUCH_ATTRIBUTE;
+  }
+
+  // Use the underlying ixm_scaniterator to do all the work
+  rc = ixm->scan(rm_IndexScanIterator.ixfileHandle, 
+                  recordDescriptor[index], lowKey, highKey, 
+                  lowKeyInclusive, highKeyInclusive,
+                  rm_IndexScanIterator.ix_iter);
+  if (rc){
+    return rc;
+  }
+
+  return SUCCESS;
 }
 
 RC RM_IndexScanIterator::getNextEntry(RID &rid, void *key){
-  return -1;
+  return ix_iter.getNextEntry(rid, key);
 }
 RC RM_IndexScanIterator::close() {
-  return -1;
+  IndexManager *ixm = IndexManager::instance();
+  ix_iter.close();
+  ixm->closeFile(ixfileHandle);
+  return SUCCESS;
 }
 
 
