@@ -9,6 +9,8 @@
 #include "../ix/ix.h"
 
 #define QE_EOF (-1)  // end of the index scan
+#define FILTER_NO_SUCH_ATTR 1
+
 
 using namespace std;
 
@@ -193,15 +195,19 @@ class IndexScan : public Iterator
 
 class Filter : public Iterator {
     // Filter operator
+    private:
+        Iterator *m_input;
+        Condition cond;
+        vector<Attribute> attrs; 
     public:
         Filter(Iterator *input,               // Iterator of input R
                const Condition &condition     // Selection condition
         );
         ~Filter(){};
 
-        RC getNextTuple(void *data) {return QE_EOF;};
+        RC getNextTuple(void *data);
         // For attribute in vector<Attribute>, name it as rel.attr
-        void getAttributes(vector<Attribute> &attrs) const{};
+        void getAttributes(vector<Attribute> &attrs) const;
 };
 
 
