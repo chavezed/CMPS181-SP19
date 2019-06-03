@@ -65,6 +65,12 @@ typedef struct IndexedAttr
     Attribute attr;
 } IndexedAttr;
 
+typedef struct IndexTableEntry {
+  int32_t id;
+  string attrName;
+  string fileName;
+} IndexTableEntry;
+
 // RM_ScanIterator is an iteratr to go through tuples
 class RM_ScanIterator {
 public:
