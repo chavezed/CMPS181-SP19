@@ -1,8 +1,7 @@
-
-
 #include "qe.h"
 #include <cmath>
 #include <cstring>
+#include <algorithm>
 
 bool comp (int left, int right, CompOp op) {
 	switch (op) {
