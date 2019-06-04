@@ -189,9 +189,15 @@ void Project::getAttributes(vector<Attribute> &attrs) const {
 
 RC Project::getNextTuple(void *data){
 	RecordBasedFileManager *rbfm = RecordBasedFileManager::instance();
+	RC rc;
 	//get the tuple
 	void * tempData = malloc(PAGE_SIZE);
-	iter->getNextTuple(tempData);
+	memset(tempData, 0, PAGE_SIZE);
+	rc = iter->getNextTuple(tempData);
+	if(rc){
+		free(tempData);
+		return QE_EOF;
+	}
 	//get the recordDiscriptor of the record.
 	vector<Attribute> iterAttrs;
 	iter->getAttributes(iterAttrs);
@@ -205,13 +211,15 @@ RC Project::getNextTuple(void *data){
 
     memcpy (nullIndicator, tempData, nullIndicatorSize);
     int tempOffset = nullIndicatorSize;
-
-    //stuff for returned data
+    int resetToBeginning = nullIndicatorSize;
+	//stuff for returned data
     nullIndicatorSize = rbfm->getNullIndicatorSize(this->attrs.size());
     char dataNulls[nullIndicatorSize];
     memset(dataNulls, 0, nullIndicatorSize);
     memcpy(data, dataNulls, nullIndicatorSize);
     int dataOffset = nullIndicatorSize;
+
+	
 
     int length = 0;
 
@@ -250,27 +258,8 @@ RC Project::getNextTuple(void *data){
 	        	}
 	        }
 	    }
+	    tempOffset = resetToBeginning;
     }
+    free(tempData);
    	return SUCCESS;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

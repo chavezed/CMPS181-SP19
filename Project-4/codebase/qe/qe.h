@@ -58,8 +58,8 @@ class TableScan : public Iterator
 
         TableScan(RelationManager &rm, const string &tableName, const char *alias = NULL):rm(rm)
         {
-        	//Set members
-        	this->tableName = tableName;
+            //Set members
+            this->tableName = tableName;
 
             // Get Attributes from RM
             rm.getAttributes(tableName, attrs);
@@ -112,7 +112,7 @@ class TableScan : public Iterator
 
         ~TableScan()
         {
-        	iter->close();
+            iter->close();
         };
 };
 
@@ -131,9 +131,9 @@ class IndexScan : public Iterator
 
         IndexScan(RelationManager &rm, const string &tableName, const string &attrName, const char *alias = NULL):rm(rm)
         {
-        	// Set members
-        	this->tableName = tableName;
-        	this->attrName = attrName;
+            // Set members
+            this->tableName = tableName;
+            this->attrName = attrName;
 
 
             // Get Attributes from RM
