@@ -263,3 +263,154 @@ RC Project::getNextTuple(void *data){
     free(tempData);
    	return SUCCESS;
 }
+
+INLJoin::INLJoin(Iterator *leftIn, IndexScan *rightIn, const Condition &condition)
+:leftIn(leftIn), rightIn(rightIn), cond(condition)
+{
+	leftIn = leftIn;
+	rightIn = rightIn;
+	cond.bRhsIsAttr = condition.bRhsIsAttr;
+	cond.lhsAttr = condition.lhsAttr;
+	cond.op = condition.op;
+	cond.rhsAttr = condition.rhsAttr;
+	cond.rhsValue = condition.rhsValue;
+	 vector<Attribute> tempAttrs;
+	leftIn->getAttributes(tempAttrs);
+	attrs.insert(attrs.end(), tempAttrs.begin(), tempAttrs.end());
+	vector<Attribute> tempAttrs2;
+	rightIn->getAttributes(tempAttrs2);
+	attrs.insert(attrs.end(), tempAttrs2.begin(), tempAttrs2.end());
+}
+
+
+
+RC INLJoin::getNextTuple(void *data){
+	RecordBasedFileManager *rbfm = RecordBasedFileManager::instance();
+	RC rc, rc2;
+
+	if(cond.bRhsIsAttr == false)
+		return -1;
+	
+	void* leftData = malloc(PAGE_SIZE);
+	void* rightData = malloc(PAGE_SIZE);
+	
+	vector<Attribute> lhsAttrs;
+	vector<Attribute> rhsAttrs;
+	leftIn->getAttributes(lhsAttrs);
+	rightIn->getAttributes(rhsAttrs);
+	
+	// check if attr.type matches lhs
+	auto pred = [&](Attribute a) {return a.name == cond.lhsAttr;};
+	auto lhsIterPos = find_if (lhsAttrs.begin(), lhsAttrs.end(), pred);
+	unsigned lhsIndex = distance (lhsAttrs.begin(), lhsIterPos);
+
+	// check if attr.type matches right hand side
+	auto pred2 = [&](Attribute a) {return a.name == cond.rhsAttr;};
+	auto rhsIterPos = find_if (rhsAttrs.begin(), rhsAttrs.end(), pred2);
+	unsigned rhsIndex = distance (rhsAttrs.begin(), rhsIterPos);
+	
+	void* leftValue = malloc(PAGE_SIZE);
+	void* rightValue = malloc(PAGE_SIZE);
+	int comp=-1;
+	if(rc=leftIn->getNextTuple(leftData) == QE_EOF)
+		return QE_EOF;
+	rightIn->setIterator(leftValue, NULL, false, false);
+	if(rc2=rightIn->getNextTuple(rightData) == QE_EOF)
+		return QE_EOF;
+	
+	
+	// rc = leftIn->getNextTuple(leftData);
+	while(rc != QE_EOF){
+		getLHSValue(lhsAttrs, lhsIndex, leftData, leftValue);
+		while(rc2 != QE_EOF){
+			getLHSValue(rhsAttrs,rhsIndex, rightData, rightValue);
+			comp = checkComp(EQ_OP, lhsAttrs[lhsIndex], leftValue, rightValue);
+			if(comp == -1){
+				return -1;
+			}
+			else if(comp == 0){
+				rc2=rightIn->getNextTuple(rightData);
+				continue;
+			}
+			else{
+				break;
+			}
+		}
+		if(comp == 1)
+			break;
+		rc = leftIn->getNextTuple(leftData);
+	}
+	if(rc==QE_EOF){
+		return QE_EOF;
+	}
+
+	int nullIndicatorSize, lhsNullSize, rhsNullSize;
+	nullIndicatorSize = getNullIndicatorSize(this->attrs.size());
+	lhsNullSize = getNullIndicatorSize(lhsAttrs.size());
+	rhsNullSize = getNullIndicatorSize(rhsAttrs.size());
+	char nullbits[nullIndicatorSize];
+	char lhsNullBits[lhsNullSize];
+	char rhsNullBits[rhsNullSize];
+	memcpy(lhsNullBits,(char*)leftData,lhsNullSize);
+	memcpy(rhsNullBits,(char*)rightData,rhsNullSize);
+	memset(data, 0, nullIndicatorSize);
+
+	int offset = nullIndicatorSize;
+	int leftOffset, rightOffset;
+	leftOffset = lhsNullSize;
+	rightOffset = rhsNullSize;
+	int length = 4;
+
+	for(int i=0; i<lhsAttrs.size(); i++){
+		if(rbfm->fieldIsNull(lhsNullBits, i)){
+			int mask = 1 << (CHAR_BIT - 1 - (i % CHAR_BIT));
+	        nullbits[i/8] ^= mask;
+	        memcpy(data, nullbits, nullIndicatorSize);
+		}
+		else if(lhsAttrs[i].type==TypeVarChar){
+			memcpy(&length, (char*)leftData+ leftOffset, sizeof(int));
+			memcpy((char*)data + offset, (char*)leftData+leftOffset, sizeof(int)+length);
+			leftOffset += sizeof(int)+length;
+			offset += sizeof(int)+length;
+		}
+		else{
+			float testing = 0;
+			int testingint = 0;
+			memcpy(&testing, (char*)leftData + leftOffset, sizeof(int));
+			memcpy(&testingint, (char*)leftData + leftOffset, sizeof(int));
+			memcpy((char*)data + offset, (char*)leftData + leftOffset, sizeof(int));
+			leftOffset += sizeof(int);
+			offset += sizeof(int);
+		}
+	}
+	
+	for(int j=0; j<rhsAttrs.size(); j++){
+		if(rbfm->fieldIsNull(rhsNullBits, j)){
+			int mask = 1 << (CHAR_BIT - 1 - (j % CHAR_BIT));
+	        nullbits[(lhsAttrs.size()+j)/8] ^= mask;
+	        memcpy((char*)data, nullbits, nullIndicatorSize);
+		}
+		else if(rhsAttrs[j].type==TypeVarChar){
+			memcpy(&length, (char*)rightData+ rightOffset, sizeof(int));
+			memcpy((char*)data + offset, (char*)rightData+rightOffset, sizeof(int)+length);
+			rightOffset += sizeof(int)+length;
+			offset += sizeof(int)+length;
+		}
+		else{
+			float testing = 0;
+			int testingint =0;
+			memcpy(&testing, (char*)rightData + rightOffset, sizeof(int));
+			memcpy(&testingint, (char*)rightData + rightOffset, sizeof(int));
+			memcpy((char*)data + offset, (char*)rightData + rightOffset, sizeof(int));
+			rightOffset += sizeof(int);
+			offset += sizeof(int);
+		}
+	}
+	free(leftData);
+	free(rightData);
+	return 1;
+}
+
+void INLJoin::getAttributes(vector<Attribute> &attrs) const{
+	attrs.assign(this->attrs.begin(), this->attrs.end());
+}
