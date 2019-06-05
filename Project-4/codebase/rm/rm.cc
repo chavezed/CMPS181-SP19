@@ -330,7 +330,7 @@ RC RelationManager::insertTuple(const string &tableName, const void *data, RID &
   rbfm->closeFile(fileHandle);
 
 
-/*  // copying internal rep of getAttributes
+  // copying internal rep of getAttributes
   // modifying to read all matching entries in Index Table
   // need to insert rid into index file
   int32_t id;
@@ -403,7 +403,7 @@ RC RelationManager::insertTuple(const string &tableName, const void *data, RID &
     fileName[fileNameLen] = '\0';
     memcpy (fileName, (char*)indexData + offset, fileNameLen);
     offset += fileNameLen;
-    indexEntry.attrName = string(fileName);
+    indexEntry.fileName = string(fileName);
 
     indexEntries.push_back(indexEntry);
   }
@@ -417,12 +417,21 @@ RC RelationManager::insertTuple(const string &tableName, const void *data, RID &
     return rc;
   }
 
+  // if no indexes exist, no need to insert to index
+  // exit with SUCCESS since tuple was inserted into Table already
+  if (indexEntries.size() == 0) {
+    return SUCCESS;
+  }
 
   IXFileHandle ixfileHandle;
   IndexManager *ixm = IndexManager::instance();
 
+  void *keyBuffer = malloc (PAGE_SIZE); // used to insert into index
+
   int i;
   for (i = 0; i < (int)indexEntries.size(); ++i) {
+    // clear the buffer
+    memset (keyBuffer, 0, PAGE_SIZE);
     //find the attribute.
     auto pred = [&](Attribute a) {return a.name == indexEntries[i].attrName;};
     auto iterPos = find_if(recordDescriptor.begin(), recordDescriptor.end(), pred);
@@ -431,11 +440,20 @@ RC RelationManager::insertTuple(const string &tableName, const void *data, RID &
       continue;
     }
 
-    ixm->openFile (indexEntries[i].fileName, ixfileHandle);
-    ixm->insertEntry(ixfileHandle, recordDescriptor[index], data, rid); // data needs to be the key
-    ixm->closeFile(ixfileHandle);
-  }*/
+    getKeyValue (recordDescriptor, index, data, keyBuffer);
 
+    rc = ixm->openFile (indexEntries[i].fileName, ixfileHandle);
+    if (rc)
+      break;
+    rc = ixm->insertEntry(ixfileHandle, recordDescriptor[index], keyBuffer, rid);
+    if (rc)
+      break;
+    rc = ixm->closeFile(ixfileHandle);
+    if (rc)
+      break;
+  }
+
+  free (keyBuffer);
   return rc;
 }
 
@@ -1462,4 +1480,32 @@ RC RM_IndexScanIterator::close() {
   return SUCCESS;
 }
 
+RC RelationManager::getKeyValue (vector<Attribute> attrs, int index, const void *data, void *leftValue) {
+  // check for a null
+  RecordBasedFileManager *rbfm = RecordBasedFileManager::instance();
+  int nullIndicatorSize = rbfm->getNullIndicatorSize (attrs.size());
+  char nullIndicator[nullIndicatorSize];
+  memset (nullIndicator, 0, nullIndicatorSize);
+  memcpy (nullIndicator, (char*)data, nullIndicatorSize);
 
+  int offset = nullIndicatorSize;
+  for (int i = 0; i < attrs.size(); ++i) {
+    if (rbfm->fieldIsNull(nullIndicator, i))
+      continue;
+
+    if (attrs[i].type == TypeVarChar) {
+      int length = 0;
+      memcpy (&length, (char*)data + offset, sizeof(int));
+      memcpy (leftValue, (char*)data + offset, sizeof(int) + length);
+      offset += sizeof(int) + length;
+    }
+    else {
+      memcpy (leftValue, (char*)data + offset, 4); // works for int or float
+      offset += sizeof(int);
+    }
+
+    if (i == index)
+      return SUCCESS;
+  }
+  return -1;
+}

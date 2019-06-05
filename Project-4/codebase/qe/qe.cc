@@ -267,8 +267,8 @@ RC Project::getNextTuple(void *data){
 INLJoin::INLJoin(Iterator *leftIn, IndexScan *rightIn, const Condition &condition)
 :leftIn(leftIn), rightIn(rightIn), cond(condition)
 {
-	leftIn = leftIn;
-	rightIn = rightIn;
+	this->leftIn = leftIn;
+	this->rightIn = rightIn;
 	cond.bRhsIsAttr = condition.bRhsIsAttr;
 	cond.lhsAttr = condition.lhsAttr;
 	cond.op = condition.op;
@@ -312,10 +312,10 @@ RC INLJoin::getNextTuple(void *data){
 	void* leftValue = malloc(PAGE_SIZE);
 	void* rightValue = malloc(PAGE_SIZE);
 	int comp=-1;
-	if(rc=leftIn->getNextTuple(leftData) == QE_EOF)
+	if((rc=leftIn->getNextTuple(leftData)) == QE_EOF)
 		return QE_EOF;
 	rightIn->setIterator(leftValue, NULL, false, false);
-	if(rc2=rightIn->getNextTuple(rightData) == QE_EOF)
+	if((rc2=rightIn->getNextTuple(rightData)) == QE_EOF)
 		return QE_EOF;
 	
 	

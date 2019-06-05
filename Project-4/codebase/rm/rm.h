@@ -198,6 +198,8 @@ private:
 
   RC isSystemTable(bool &system, const string &tableName);
 
+ int getKeyValue (vector<Attribute> attrs, int index, const void *data, void *leftValue);
+
 
 
   // Utility functions for converting single values to/from api format
