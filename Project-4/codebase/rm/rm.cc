@@ -1189,8 +1189,6 @@ RC RelationManager::destroyIndex(const string &tableName, const string &attribut
     return rc;
   }
 
-  rc = deleteTable(tableName); // this should be fileName not table name since we want to destroy the index based on the attribute
-
   //Delete from the index catolog
   FileHandle fileHandle;
   rc = rbfm->openFile(getFileName(INDEX_TABLE_NAME), fileHandle);
