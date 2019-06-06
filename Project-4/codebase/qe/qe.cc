@@ -290,17 +290,17 @@ INLJoin::INLJoin(Iterator *leftIn, IndexScan *rightIn, const Condition &conditio
 RC INLJoin::getNextTuple(void *data){
 	RecordBasedFileManager *rbfm = RecordBasedFileManager::instance();
 	RC rc;
-
+	//we assume condition is correct type
 	if(cond.bRhsIsAttr == false){
 		return -1;
 	}
-	
+	//get data
 	void* leftData = malloc(PAGE_SIZE);
 	memset(leftData, 0, PAGE_SIZE);
 
 	void* rightData = malloc(PAGE_SIZE);
 	memset(rightData, 0, PAGE_SIZE);
-
+	// get attribute vectors
 	vector<Attribute> lhsAttrs;
 	vector<Attribute> rhsAttrs;
 	leftIn->getAttributes(lhsAttrs);
@@ -323,7 +323,7 @@ RC INLJoin::getNextTuple(void *data){
 	memset(rightValue, 0, PAGE_SIZE);
 
 	
-
+	// if leftData is empty, return empty
 	if(rc=leftIn->getNextTuple(leftData) == QE_EOF){
 		free(leftData);
 		free(rightData);
@@ -331,17 +331,18 @@ RC INLJoin::getNextTuple(void *data){
 		free(leftValue);
 		return QE_EOF;
 	}
-
+	// while loop, for each entry on left, check each entry on right, if
+	// comparison values are equal, continue
 	int comp = 0;
 	while(rc != QE_EOF){
 		getLHSValue(lhsAttrs, lhsIndex, leftData, leftValue);
-		rightIn->setIterator(NULL, NULL, true, true);
+		rightIn->setIterator(NULL, NULL, true, true);//reset right Iterator
 
 		while (rightIn->getNextTuple(rightData) != QE_EOF){
 			getLHSValue(rhsAttrs,rhsIndex, rightData, rightValue);
 			comp = checkComp(EQ_OP, lhsAttrs[lhsIndex], leftValue, rightValue);
 			if(comp == -1){
-				return -1;
+				return -1;//error in getNextTuple, should never reach here
 			}
 			else if(comp == 0){
 				continue;
@@ -353,8 +354,10 @@ RC INLJoin::getNextTuple(void *data){
 		if(comp == 1){
 			break;
 		}
+		// no matching tuple in right table
 		rc = leftIn->getNextTuple(leftData);
 	}
+	// there is no matching tuple left
 	if(rc==QE_EOF){
 		free(leftData);
 		free(rightData);
@@ -362,7 +365,7 @@ RC INLJoin::getNextTuple(void *data){
 		free(leftValue);
 		return QE_EOF;
 	}
-
+	//initialize values for merge
 	int nullIndicatorSize, lhsNullSize, rhsNullSize;
 	nullIndicatorSize = getNullIndicatorSize(this->attrs.size());
 	lhsNullSize = getNullIndicatorSize(lhsAttrs.size());
@@ -379,9 +382,9 @@ RC INLJoin::getNextTuple(void *data){
 	leftOffset = lhsNullSize;
 	rightOffset = rhsNullSize;
 	int length = 4;
-
+	// copy the left side to data
 	for(int i=0; i<lhsAttrs.size(); i++){
-		if(rbfm->fieldIsNull(lhsNullBits, i)){
+		if(rbfm->fieldIsNull(lhsNullBits, i)){//set null bits in data
 			int mask = 1 << (CHAR_BIT - 1 - (i % CHAR_BIT));
 	        nullbits[i/8] ^= mask;
 	        memcpy(data, nullbits, nullIndicatorSize);
@@ -393,16 +396,12 @@ RC INLJoin::getNextTuple(void *data){
 			offset += sizeof(int)+length;
 		}
 		else{
-			float testing = 0;
-			int testingint = 0;
-			memcpy(&testing, (char*)leftData + leftOffset, sizeof(int));
-			memcpy(&testingint, (char*)leftData + leftOffset, sizeof(int));
 			memcpy((char*)data + offset, (char*)leftData + leftOffset, sizeof(int));
 			leftOffset += sizeof(int);
 			offset += sizeof(int);
 		}
 	}
-	
+	// copy the right side to data
 	for(int j=0; j<rhsAttrs.size(); j++){
 		if(rbfm->fieldIsNull(rhsNullBits, j)){
 			int mask = 1 << (CHAR_BIT - 1 - (j % CHAR_BIT));
@@ -416,20 +415,17 @@ RC INLJoin::getNextTuple(void *data){
 			offset += sizeof(int)+length;
 		}
 		else{
-			float testing = 0;
-			int testingint =0;
-			memcpy(&testing, (char*)rightData + rightOffset, sizeof(int));
-			memcpy(&testingint, (char*)rightData + rightOffset, sizeof(int));
 			memcpy((char*)data + offset, (char*)rightData + rightOffset, sizeof(int));
 			rightOffset += sizeof(int);
 			offset += sizeof(int);
 		}
 	}
-
+	// free pointers
 	free(leftData);
 	free(rightData);
 	free(rightValue);
 	free(leftValue);
+	// return success
 	return 1;
 }
 
