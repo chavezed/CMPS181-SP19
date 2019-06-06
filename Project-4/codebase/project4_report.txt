@@ -1,29 +1,30 @@
 1. Basic information
-Team number (e.g., 01) : 
-#1 Student ID : 
-#1 Student Name : 
+Team number (e.g., 01) : 04
+#1 Student ID : 1487504
+#1 Student Name : Keenan Yamasaki
 #2 Student ID : 
-#2 Student Name : 
+#2 Student Name : Kevin Schumacher
 #3 Student ID : 
-#3 Student Name : 
+#3 Student Name : Eduardo Chavez
 
 
 2. Catalog information about Index
 - Show what catalog information you store for an index. 
-
+table ID, attribute which we are indexing on, and name of index file.
 
 3. Index Nested Loop Join
 - Describe how your Index Nested Loop Join works.
-
+Get data from iterators, and attribute vectors for each iterator. check attribute type, and get index for each check. Get next tuple from left, and check for empty leftData. For each tuple in left, check for tuples in right which have matching values for which we are joining on. If found, break out of both loops. If getNextTuple(rightData) returns QE_EOF (end of file), this means you have reached the end of the index on the right data, meaning there is no match for the given left tuple, and will get the next left tuple and continue looping. 
+after the loop, check for QE_EOF(end of file) in leftData. If this is the case, free pointers and return end of file. otherwise, Initialize values for merge, getting the null indicator sizes all tuples to set the null indicator correctly. copy left tuple, then right tuple, into data, accounting for the offset of the null indicator. free pointers then return success.
 
 4. Implementation Detail
 - Have you added your own source file (.cc or .h)?
-
+no
 - Have you implemented any optional features? Then, describe them here.
-
+no
 - Other implementation details:
-
+see 5
 
 5. Other (optional)
 - Freely use this section to tell us about things that are related to the project 4, but not related to the other sections (optional)
-
+The IndexScanIterator function setIterator does not seem to work as intended.  When we were testing test 9 we had used: setIterator(leftData, NULL, true, false). It would work for the first 14 tuples, on the 15th tuple the getNextTuple function of the IndexScan would return 49 instead of 64.  We ran a couple of test and determined that the IndexScan would only get 15 tuples before saying it was at the end of the file. Because of these issues we were forced to set the iterator to the beginning of the index file and to loop through until the end or until it finds the correct tuple.  
