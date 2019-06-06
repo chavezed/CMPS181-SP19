@@ -264,19 +264,22 @@ RC Project::getNextTuple(void *data){
    	return SUCCESS;
 }
 
-INLJoin::INLJoin(Iterator *leftIn, IndexScan *rightIn, const Condition &condition)
+NLJoin::INLJoin(Iterator *leftIn, IndexScan *rightIn, const Condition &condition)
 :leftIn(leftIn), rightIn(rightIn), cond(condition)
 {
-	this->leftIn = leftIn;
-	this->rightIn = rightIn;
+	leftIn = leftIn;
+	rightIn = rightIn;
+
 	cond.bRhsIsAttr = condition.bRhsIsAttr;
 	cond.lhsAttr = condition.lhsAttr;
 	cond.op = condition.op;
 	cond.rhsAttr = condition.rhsAttr;
 	cond.rhsValue = condition.rhsValue;
-	 vector<Attribute> tempAttrs;
+
+	vector<Attribute> tempAttrs;
 	leftIn->getAttributes(tempAttrs);
 	attrs.insert(attrs.end(), tempAttrs.begin(), tempAttrs.end());
+
 	vector<Attribute> tempAttrs2;
 	rightIn->getAttributes(tempAttrs2);
 	attrs.insert(attrs.end(), tempAttrs2.begin(), tempAttrs2.end());
@@ -286,14 +289,18 @@ INLJoin::INLJoin(Iterator *leftIn, IndexScan *rightIn, const Condition &conditio
 
 RC INLJoin::getNextTuple(void *data){
 	RecordBasedFileManager *rbfm = RecordBasedFileManager::instance();
-	RC rc, rc2;
+	RC rc;
 
-	if(cond.bRhsIsAttr == false)
+	if(cond.bRhsIsAttr == false){
 		return -1;
+	}
 	
 	void* leftData = malloc(PAGE_SIZE);
+	memset(leftData, 0, PAGE_SIZE);
+
 	void* rightData = malloc(PAGE_SIZE);
-	
+	memset(rightData, 0, PAGE_SIZE);
+
 	vector<Attribute> lhsAttrs;
 	vector<Attribute> rhsAttrs;
 	leftIn->getAttributes(lhsAttrs);
@@ -310,37 +317,50 @@ RC INLJoin::getNextTuple(void *data){
 	unsigned rhsIndex = distance (rhsAttrs.begin(), rhsIterPos);
 	
 	void* leftValue = malloc(PAGE_SIZE);
+	memset(leftValue, 0, PAGE_SIZE);
+
 	void* rightValue = malloc(PAGE_SIZE);
-	int comp=-1;
-	if((rc=leftIn->getNextTuple(leftData)) == QE_EOF)
-		return QE_EOF;
-	rightIn->setIterator(leftValue, NULL, false, false);
-	if((rc2=rightIn->getNextTuple(rightData)) == QE_EOF)
-		return QE_EOF;
+	memset(rightValue, 0, PAGE_SIZE);
+
 	
-	
-	// rc = leftIn->getNextTuple(leftData);
+
+	if(rc=leftIn->getNextTuple(leftData) == QE_EOF){
+		free(leftData);
+		free(rightData);
+		free(rightValue);
+		free(leftValue);
+		return QE_EOF;
+	}
+
+	int comp = 0;
 	while(rc != QE_EOF){
+
 		getLHSValue(lhsAttrs, lhsIndex, leftData, leftValue);
-		while(rc2 != QE_EOF){
+		rightIn->setIterator(leftValue, NULL, true, false);
+
+		while (rightIn->getNextTuple(rightData) != QE_EOF){
 			getLHSValue(rhsAttrs,rhsIndex, rightData, rightValue);
 			comp = checkComp(EQ_OP, lhsAttrs[lhsIndex], leftValue, rightValue);
 			if(comp == -1){
 				return -1;
 			}
 			else if(comp == 0){
-				rc2=rightIn->getNextTuple(rightData);
 				continue;
 			}
 			else{
 				break;
 			}
 		}
-		if(comp == 1)
+		if(comp == 1){
 			break;
+		}
 		rc = leftIn->getNextTuple(leftData);
 	}
 	if(rc==QE_EOF){
+		free(leftData);
+		free(rightData);
+		free(rightValue);
+		free(leftValue);
 		return QE_EOF;
 	}
 
@@ -406,8 +426,11 @@ RC INLJoin::getNextTuple(void *data){
 			offset += sizeof(int);
 		}
 	}
+
 	free(leftData);
 	free(rightData);
+	free(rightValue);
+	free(leftValue);
 	return 1;
 }
 
