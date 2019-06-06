@@ -4,7 +4,7 @@ Team number (e.g., 01) : 04
 #1 Student Name : Keenan Yamasaki
 #2 Student ID : 
 #2 Student Name : Kevin Schumacher
-#3 Student ID : 
+#3 Student ID : 1559699 
 #3 Student Name : Eduardo Chavez
 
 
