@@ -264,7 +264,7 @@ RC Project::getNextTuple(void *data){
    	return SUCCESS;
 }
 
-NLJoin::INLJoin(Iterator *leftIn, IndexScan *rightIn, const Condition &condition)
+INLJoin::INLJoin(Iterator *leftIn, IndexScan *rightIn, const Condition &condition)
 :leftIn(leftIn), rightIn(rightIn), cond(condition)
 {
 	leftIn = leftIn;
@@ -333,12 +333,16 @@ RC INLJoin::getNextTuple(void *data){
 	}
 
 	int comp = 0;
+	int leftCount = 0;
+	int rightCount = 0;
 	while(rc != QE_EOF){
-
+		leftCount += 1;
+		rightCount = 0;
 		getLHSValue(lhsAttrs, lhsIndex, leftData, leftValue);
-		rightIn->setIterator(leftValue, NULL, true, false);
+		rightIn->setIterator(NULL, NULL, true, true);
 
 		while (rightIn->getNextTuple(rightData) != QE_EOF){
+			rightCount += 1;
 			getLHSValue(rhsAttrs,rhsIndex, rightData, rightValue);
 			comp = checkComp(EQ_OP, lhsAttrs[lhsIndex], leftValue, rightValue);
 			if(comp == -1){
